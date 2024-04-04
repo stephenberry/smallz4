@@ -366,10 +366,13 @@ int main(int argc, const char* argv[])
       smallz4_original::lz4(getBytesOriginal, sendBytesOriginal, maxChainLength);
       auto t1 = std::chrono::steady_clock::now();
 
+      const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6;
       std::cout << "original compression time: "
-                << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
+                << duration << '\n';
 
       std::cout << "original: " << original_in.size() << ", " << original_out.size() << '\n';
+      auto mbytes_per_sec = text.size() / (duration * 1048576);
+      std::cout << "original speed: " << mbytes_per_sec << " MB/s\n";
       std::cout << '\n';
    }
 
@@ -383,8 +386,12 @@ int main(int argc, const char* argv[])
    smallz4::lz4(it, end, compressed, ix, maxChainLength);
    auto t1 = std::chrono::steady_clock::now();
 
+   const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6;
    std::cout << "smallz4 compression time: "
-             << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
+             << duration << '\n';
+   auto mbytes_per_sec = text.size() / (duration * 1048576);
+   std::cout << "smallz4 speed: " << mbytes_per_sec << " MB/s\n";
+   
    compressed.resize(ix);
 
    std::cout << "refactored: " << text.size() << ", " << compressed.size() << '\n';
