@@ -35,13 +35,12 @@
     smallz4::lz4(GET_BYTES, SEND_BYTES);
     // for more advanced stuff, you can call lz4 with up to four parameters (incl. max chain length and a dictionary)
 **/
-class smallz4
+struct smallz4
 {
-public:
   // read  several bytes, see getBytesFromIn() in smallz4.cpp for a basic implementation
-  typedef size_t (*GET_BYTES) (      void* data, size_t numBytes, void* userPtr);
+   using GET_BYTES = size_t(*)(void* data, size_t numBytes, void* userPtr);
   // write several bytes, see sendBytesToOut() in smallz4.cpp for a basic implementation
-  typedef void   (*SEND_BYTES)(const void* data, size_t numBytes, void* userPtr);
+   using SEND_BYTES = void(*)(const void* data, size_t numBytes, void* userPtr);
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
   static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
@@ -85,55 +84,36 @@ private:
   // ----- constants and types -----
 
   /// a block can be up to 4 MB, so uint32_t would suffice but uint64_t is quite a bit faster on my x64 machine
-  typedef uint64_t Length;
+  using Length = uint64_t;
   /// matches must start within the most recent 64k
-  typedef uint16_t Distance;
+  using Distance = uint16_t;
+   
+   static constexpr int MinMatch = 4; // each match's length must be >= 4
+   static constexpr int JustLiteral = 1; // a literal needs one byte
+   static constexpr int BlockEndNoMatch = 12; // last match must not be closer than 12 bytes to the end
+   static constexpr int BlockEndLiterals =  5; // last 5 bytes must be literals, no matching allowed
+   static constexpr int HashBits = 20; // match finder's hash table size (2^HashBits entries, must be less than 32)
+   static constexpr int HashSize = 1 << HashBits;
+   static constexpr int BufferSize = 64*1024; // input buffer size, can be any number but zero ;-)
+   static constexpr int MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
+   static constexpr int EndOfChain = 0; // marker for "no match"
+   static constexpr int MaxChainLength = MaxDistance; // stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
 
-  enum
-  {
-    /// each match's length must be >= 4
-    MinMatch          =  4,
-    /// a literal needs one byte
-    JustLiteral       =  1,
-    /// last match must not be closer than 12 bytes to the end
-    BlockEndNoMatch   = 12,
-    /// last 5 bytes must be literals, no matching allowed
-    BlockEndLiterals  =  5,
+   static constexpr int MaxSameLetter = 19 + 255*256; // significantly speed up parsing if the same byte is repeated a lot, may cause sub-optimal compression
 
-    /// match finder's hash table size (2^HashBits entries, must be less than 32)
-    HashBits          = 20,
-    HashSize          = 1 << HashBits,
+   /// maximum block size as defined in LZ4 spec: { 0,0,0,0,64*1024,256*1024,1024*1024,4*1024*1024 }
+   /// I only work with the biggest maximum block size (7)
+   //  note: xxhash header checksum is precalculated only for 7, too
+   static constexpr int MaxBlockSizeId = 7;
+   static constexpr int MaxBlockSize = 4*1024*1024;
 
-    /// input buffer size, can be any number but zero ;-)
-    BufferSize        = 64*1024,
-
-    /// maximum match distance, must be power of 2 minus 1
-    MaxDistance       =   65535,
-    /// marker for "no match"
-    EndOfChain        =       0,
-    /// stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
-    MaxChainLength    = MaxDistance,
-
-    /// significantly speed up parsing if the same byte is repeated a lot, may cause sub-optimal compression
-    MaxSameLetter     =   19 + 255*256, // was: 19 + 255,
-
-    /// maximum block size as defined in LZ4 spec: { 0,0,0,0,64*1024,256*1024,1024*1024,4*1024*1024 }
-    /// I only work with the biggest maximum block size (7)
-    //  note: xxhash header checksum is precalculated only for 7, too
-    MaxBlockSizeId    = 7,
-    MaxBlockSize      = 4*1024*1024,
-
-    /// legacy format has a fixed block size of 8 MB
-    MaxBlockSizeLegacy = 8*1024*1024,
-
-    /// number of literals and match length is encoded in several bytes, max. 255 per byte
-    MaxLengthCode = 255
-  };
+   static constexpr int MaxBlockSizeLegacy = 8*1024*1024; // legacy format has a fixed block size of 8 MB
+   static constexpr int MaxLengthCode = 255; // number of literals and match length is encoded in several bytes, max. 255 per byte
 
   //  ----- one and only variable ... -----
 
   /// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
-  unsigned short maxChainLength;
+  uint16_t maxChainLength;
 
   //  ----- code -----
 
