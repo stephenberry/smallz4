@@ -137,7 +137,7 @@ struct smallz4
       result.length = JustLiteral; // assume a literal => one byte
 
       // compression level: look only at the first n entries of the match chain
-      unsigned short stepsLeft = maxChainLength;
+      uint16_t stepsLeft = maxChainLength;
       // findLongestMatch() shouldn't be called when maxChainLength = 0 (uncompressed)
 
       // pointer to position that is currently analyzed (which we try to find a great match for)
@@ -205,10 +205,8 @@ struct smallz4
          while (phase2 < stop && *phase2 == *(phase2 - totalDistance)) {
             ++phase2;
          }
-
-         // store new best match
-         result.distance = Distance(totalDistance);
-         result.length = Length(phase2 - current);
+         
+         result = {Length(phase2 - current), Distance(totalDistance)}; // store new best match
 
          // stop searching on lower compression levels
          if (--stepsLeft == 0) {
