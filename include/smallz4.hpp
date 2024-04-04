@@ -464,7 +464,7 @@ struct smallz4
       // 6. then I switch to a sparser chain: previousExact
       // 7. it's basically the same idea as previousHash but this time not the hash but the first four bytes must be
       // identical
-      // 8. previousExact will be used by findLongestMatch: it compare all such strings a figures out which is the
+      // 8. previousExact will be used by findLongestMatch: it compare all such strings and figures out which is the
       // longest match
 
       // And why do I have to do it in such a complicated way ?
@@ -687,7 +687,8 @@ struct smallz4
          // last bytes are always literals
          const auto n_lengths = int64_t(n_matches);
          while (i < n_lengths) {
-            matches.lengths[i++] = JustLiteral;
+            matches.lengths[i] = JustLiteral;
+            ++i;
          }
          
          // dictionary is valid only to the first block
