@@ -114,16 +114,16 @@ struct smallz4
    explicit smallz4(uint16_t newMaxChainLength = MaxChainLength) : maxChainLength(newMaxChainLength) {}
 
    /// return true, if the four bytes at *a and *b match
-   inline static bool match4(const void* const a, const void* const b)
+   inline static constexpr bool match4(const void* const a, const void* const b)
    {
       return *(const uint32_t*)a == *(const uint32_t*)b;
    }
 
    /// simple hash function, input: 32 bits, output: HashBits bits (by default: 20)
-   inline static uint32_t getHash32(uint32_t fourBytes)
+   inline static constexpr uint32_t getHash32(uint32_t fourBytes)
    {
       // taken from https://en.wikipedia.org/wiki/Linear_congruential_generator
-      const uint32_t HashMultiplier = 48271;
+      constexpr uint32_t HashMultiplier = 48271;
       return ((fourBytes * HashMultiplier) >> (32 - HashBits)) & (HashSize - 1);
    }
 
@@ -661,7 +661,9 @@ struct smallz4
             }
          }
          // last bytes are always literals
-         while (i < int(matches.size())) matches[i++].length = JustLiteral;
+         while (i < int(matches.size())) {
+            matches[i++].length = JustLiteral;
+         }
 
          // dictionary is valid only to the first block
          parseDictionary = false;
