@@ -83,7 +83,7 @@ private:
    static constexpr int HashBits = 20; // match finder's hash table size (2^HashBits entries, must be less than 32)
    static constexpr int HashSize = 1 << HashBits;
    static constexpr int BufferSize = 64*1024; // input buffer size, can be any number but zero ;-)
-   static constexpr int MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
+   static constexpr uint32_t MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
    static constexpr int EndOfChain = 0; // marker for "no match"
    static constexpr int MaxChainLength = MaxDistance; // stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
 
@@ -457,7 +457,7 @@ private:
     unsigned char buffer[BufferSize];
 
     // read the file in chunks/blocks, data will contain only bytes which are relevant for the current block
-    std::vector<unsigned char> data;
+    std::span<const unsigned char> data;
 
     // file position corresponding to data[0]
     size_t dataZero = 0;
@@ -510,17 +510,13 @@ private:
       // prepend dictionary
       if (parseDictionary)
       {
-        // resize dictionary to 64k (minus 1 because we can only match the last 65535 bytes of the dictionary => MaxDistance)
-        if (dictionary.size() < MaxDistance)
-        {
-          // dictionary is smaller than 64k, prepend garbage data
-          size_t unused = MaxDistance - dictionary.size();
-          data.resize(unused, 0);
-          data.insert(data.end(), dictionary.begin(), dictionary.end());
-        }
-        else
           // copy only the most recent 64k of the dictionary
-          data.insert(data.end(), dictionary.begin() + dictionary.size() - MaxDistance, dictionary.end());
+         if (dictionary.size() < MaxDistance) {
+            data = {dictionary.data(), dictionary.size()};
+         }
+         else {
+            data = {dictionary.data(), MaxDistance};
+         }
 
         nextBlock = data.size();
         numRead   = data.size();
@@ -537,8 +533,13 @@ private:
          if (BufferSize < incoming) {
             incoming = BufferSize;
          }
-
-        data.insert(data.end(), it, it + incoming); // TODO: use a span
+         
+         if (data.empty()) {
+            data = { it, incoming };
+         }
+         else {
+            data = { data.data(), data.size() + incoming };
+         }
          numRead += incoming;
          it += incoming;
       }
@@ -740,7 +741,7 @@ private:
        {
          size_t remove = data.size() - MaxDistance;
          dataZero += remove;
-         data.erase(data.begin(), data.begin() + remove);
+          data = data.subspan(remove);
        }
     }
 
