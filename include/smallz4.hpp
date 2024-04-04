@@ -362,14 +362,15 @@ struct smallz4
          }
 
          // let's look at the longest match, almost always more efficient that the plain literals
-         Match match{ matches.lengths[i], matches.distances[i] };
+         const Length match_length = matches.lengths[i];
+         const Distance match_distance = matches.distances[i];
 
          // very long self-referencing matches can slow down the program A LOT
-         if (match.length >= MaxSameLetter && match.distance == 1) {
+         if (match_length >= MaxSameLetter && match_distance == 1) {
             // assume that longest match is always the best match
             // NOTE: this assumption might not be optimal !
-            bestLength = match.length;
-            minCost = cost[i + match.length] + 1 + 2 + 1 + Cost(match.length - 19) / 255;
+            bestLength = match_length;
+            minCost = cost[i + match_length] + 1 + 2 + 1 + Cost(match_length - 19) / 255;
          }
          else {
             // this is the core optimization loop
@@ -379,7 +380,7 @@ struct smallz4
             Length nextCostIncrease = 18; // need one more byte for 19+ long matches (next increase: 19+255*x)
 
             // try all match lengths (start with short ones)
-            for (Length length = MinMatch; length <= match.length; ++length) {
+            for (Length length = MinMatch; length <= match_length; ++length) {
                // token (1 byte) + offset (2 bytes) + extra bytes for long matches
                Cost currentCost = cost[i + length] + extraCost;
                // better choice ?
