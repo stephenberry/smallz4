@@ -106,12 +106,6 @@ struct smallz4
       std::vector<Distance> distances{}; // distances of matches
    };
 
-   struct Match
-   {
-      Length length; // length of match
-      Distance distance; // start of match
-   };
-
    /// create new compressor (only invoked by lz4)
    explicit smallz4(uint16_t newMaxChainLength = MaxChainLength) : maxChainLength(newMaxChainLength) {}
 
@@ -577,14 +571,15 @@ struct smallz4
          for (i = lookback; i + BlockEndNoMatch <= int64_t(blockSize) && !uncompressed; ++i) {
             // detect self-matching
             if (i > 0 && dataBlock[i] == dataBlock[i - 1]) {
-               Match prevMatch{ matches.lengths[i - 1], matches.distances[i - 1] };
+               const auto prev_length = matches.lengths[i - 1];
+               const auto prev_distance = matches.distances[i - 1];
                // predecessor had the same match ?
-               if (prevMatch.distance == 1 &&
-                   prevMatch.length > MaxSameLetter) // TODO: handle very long self-referencing matches
+               if (prev_distance == 1 &&
+                   prev_length > MaxSameLetter) // TODO: handle very long self-referencing matches
                {
                   // just copy predecessor without further (expensive) optimizations
                   matches.distances[i] = 1;
-                  matches.lengths[i] = prevMatch.length - 1;
+                  matches.lengths[i] = prev_length - 1;
                   continue;
                }
             }
