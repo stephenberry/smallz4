@@ -13,7 +13,7 @@
 struct smallz4
 {
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-  static void lz4(const char*& it, const char* end, std::string& b, size_t& ix,
+  static void lz4(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix,
                   uint16_t maxChainLength = MaxChainLength,
                   const std::vector<unsigned char>& dictionary = {}, // predefined dictionary
                   void* userPtr = nullptr)
@@ -443,7 +443,7 @@ private:
   }
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
-  void compress(const char*& it, const char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const
+  void compress(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const
   {
     // ==================== write header ====================
      // frame header

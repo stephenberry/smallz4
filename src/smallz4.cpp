@@ -29,7 +29,7 @@ static void unlz4error(const char* msg)
 
 
 /// decompress everything in input stream (accessed via getByte) and write to output stream (via sendBytes)
-void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const char* dictionary)
+void unlz4(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix, const char* dictionary)
 {
   // signature
    unsigned char signature1 = *it; ++it;
@@ -39,8 +39,10 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
   uint32_t  signature  = (signature4 << 24) | (signature3 << 16) | (signature2 << 8) | signature1;
   unsigned char isModern   = (signature == 0x184D2204);
   unsigned char isLegacy   = (signature == 0x184C2102);
-  if (!isModern)
-    unlz4error("invalid signature");
+   if (!isModern) {
+      unlz4error("invalid signature");
+   }
+    
 
   unsigned char hasBlockChecksum   = 0;
   unsigned char hasContentSize     = 0;
@@ -86,9 +88,9 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
 
     // get dictionary's filesize
     fseek(dict, 0, SEEK_END);
-    long dictSize = ftell(dict);
+     int64_t dictSize = ftell(dict);
     // only the last 64k are relevant
-    long relevant = dictSize < 65536 ? 0 : dictSize - 65536;
+    int64_t relevant = dictSize < 65536 ? 0 : dictSize - 65536;
     fseek(dict, relevant, SEEK_SET);
     if (dictSize > 65536)
       dictSize = 65536;
@@ -624,19 +626,19 @@ int main(int argc, const char* argv[])
    std::string compressed{};
    size_t ix{};
    
-   const char* it = text.data();
-   const char* end = it + text.size();
+   const unsigned char* it = reinterpret_cast<const unsigned char*>(text.data());
+   const unsigned char* end = it + text.size();
    smallz4::lz4(it, end, compressed, ix);
    compressed.resize(ix);
    
    std::cout << "refactored: " << text.size() << ", " << compressed.size() << '\n';
-   std::cout << compressed << '\n';
+   //std::cout << compressed << '\n';
    
    if (original_out == compressed) {
       std::cout << "refactored matches original!\n";
    }
    
-   it = original_out.data();
+   it = reinterpret_cast<const unsigned char*>(original_out.data());
    end = it + original_out.size();
    ix = 0;
    std::string decompressed{};
