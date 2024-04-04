@@ -15,21 +15,17 @@ struct smallz4
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
   static void lz4(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix,
                   uint16_t maxChainLength = MaxChainLength,
-                  const std::vector<unsigned char>& dictionary = {}, // predefined dictionary
-                  void* userPtr = nullptr)
+                  const std::vector<unsigned char>& dictionary = {})
   {
     smallz4 obj(maxChainLength);
-    obj.compress(it, end, b, ix, dictionary, userPtr);
+    obj.compress(it, end, b, ix, dictionary);
   }
-
+   
   // compression level thresholds, made public because I display them in the help screen ...
-  enum
-  {
-    /// greedy mode for short chains (compression level <= 3) instead of optimal parsing / lazy evaluation
-    ShortChainsGreedy = 3,
-    /// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
-    ShortChainsLazy   = 6
-  };
+   /// greedy mode for short chains (compression level <= 3) instead of optimal parsing / lazy evaluation
+   static constexpr int ShortChainsGreedy = 3;
+   /// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
+   static constexpr int ShortChainsLazy = 6;
    
    static inline void dump(const std::span<const unsigned char> str, std::string& b, size_t& ix) noexcept
    {
@@ -443,7 +439,7 @@ private:
   }
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
-  void compress(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const
+  void compress(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary) const
   {
     // ==================== write header ====================
      // frame header
