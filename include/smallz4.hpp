@@ -1,30 +1,10 @@
-// //////////////////////////////////////////////////////////
-// smallz4.h
 // Copyright (c) 2016-2020 Stephan Brumme. All rights reserved.
 // see https://create.stephan-brumme.com/smallz4/
-//
-// "MIT License":
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the Software
-// is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// see LICENSE for details
 
 #pragma once
 
-#include <inttypes.h> // uint16_t, uint32_t, ...
-#include <cstdlib>    // size_t
+#include <cstdint>
 #include <vector>
 
 /// LZ4 compression with optimal parsing
@@ -68,7 +48,6 @@ struct smallz4
     return "1.5";
   }
 
-
   // compression level thresholds, made public because I display them in the help screen ...
   enum
   {
@@ -78,11 +57,7 @@ struct smallz4
     ShortChainsLazy   = 6
   };
 
-  // ----- END OF PUBLIC INTERFACE -----
 private:
-
-  // ----- constants and types -----
-
   /// a block can be up to 4 MB, so uint32_t would suffice but uint64_t is quite a bit faster on my x64 machine
   using Length = uint64_t;
   /// matches must start within the most recent 64k
@@ -113,7 +88,7 @@ private:
   //  ----- one and only variable ... -----
 
   /// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
-  uint16_t maxChainLength;
+   uint16_t maxChainLength{};
 
   //  ----- code -----
 
@@ -128,7 +103,7 @@ private:
 
 
   /// create new compressor (only invoked by lz4)
-  explicit smallz4(unsigned short newMaxChainLength = MaxChainLength)
+  explicit smallz4(uint16_t newMaxChainLength = MaxChainLength)
   : maxChainLength(newMaxChainLength) // => no limit, but can be changed by setMaxChainLength
   {
   }
