@@ -1,4 +1,5 @@
 #include "smallz4.hpp"
+#include "smallz4_original.hpp"
 
 #include <cstdio>     // stdin/stdout/stderr, fopen, ...
 #include <ctime>      // time (verbose output)

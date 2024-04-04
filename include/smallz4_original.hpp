@@ -9,18 +9,50 @@
 #include <string>
 #include <vector>
 
+// Original Code
+
 /// LZ4 compression with optimal parsing
-struct smallz4
+/** see smallz4.cpp for a basic I/O interface
+    you can easily replace it by a in-memory version
+    then all you have to do is:
+    #include "smallz4.h"
+    smallz4::lz4(GET_BYTES, SEND_BYTES);
+    // for more advanced stuff, you can call lz4 with up to four parameters (incl. max chain length and a dictionary)
+**/
+class smallz4_original
 {
+public:
+  // read  several bytes, see getBytesFromIn() in smallz4.cpp for a basic implementation
+  typedef size_t (*GET_BYTES) (      void* data, size_t numBytes, void* userPtr);
+  // write several bytes, see sendBytesToOut() in smallz4.cpp for a basic implementation
+  typedef void   (*SEND_BYTES)(const void* data, size_t numBytes, void* userPtr);
+
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-  static void lz4(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix,
-                  uint16_t maxChainLength = MaxChainLength,
-                  const std::vector<unsigned char>& dictionary = {}, // predefined dictionary
-                  void* userPtr = nullptr)
+  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
+                  unsigned short maxChainLength = MaxChainLength,
+                  bool useLegacyFormat = false,
+                  void* userPtr = NULL)
   {
-    smallz4 obj(maxChainLength);
-    obj.compress(it, end, b, ix, dictionary, userPtr);
+    lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>(), useLegacyFormat, userPtr);
   }
+
+  /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
+  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
+                  unsigned short maxChainLength,
+                  const std::vector<unsigned char>& dictionary, // predefined dictionary
+                  bool useLegacyFormat = false,                 // old format is 7 bytes smaller if input < 8 MB
+                  void* userPtr = NULL)
+  {
+    smallz4_original obj(maxChainLength);
+    obj.compress(getBytes, sendBytes, dictionary, useLegacyFormat, userPtr);
+  }
+
+  /// version string
+  static const char* const getVersion()
+  {
+    return "1.5";
+  }
+
 
   // compression level thresholds, made public because I display them in the help screen ...
   enum
@@ -30,81 +62,62 @@ struct smallz4
     /// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
     ShortChainsLazy   = 6
   };
-   
-   static inline void dump(const std::span<const unsigned char> str, std::string& b, size_t& ix) noexcept
-   {
-      const auto n = str.size();
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-      
-      std::memcpy(b.data() + ix, str.data(), n);
-      ix += n;
-   }
-   
-   static inline void dump(const unsigned char c, std::string& b, size_t& ix) noexcept
-   {
-      if (ix == b.size()) [[unlikely]] {
-         b.resize(b.size() == 0 ? 128 : b.size() * 2);
-      }
 
-      b[ix] = c;
-      ++ix;
-   }
-   
-   static inline void dump(const std::span<const std::byte> bytes, std::string& b, size_t& ix) noexcept
-   {
-      const auto n = bytes.size();
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-
-      std::memcpy(b.data() + ix, bytes.data(), n);
-      ix += n;
-   }
-   
-   static inline void dump_type(auto&& value, std::string& b, size_t& ix) noexcept
-   {
-      constexpr auto n = sizeof(std::decay_t<decltype(value)>);
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-
-      std::memcpy(b.data() + ix, &value, n);
-      ix += n;
-   }
-
+  // ----- END OF PUBLIC INTERFACE -----
 private:
+
+  // ----- constants and types -----
+
   /// a block can be up to 4 MB, so uint32_t would suffice but uint64_t is quite a bit faster on my x64 machine
-  using Length = uint64_t;
+  typedef uint64_t Length;
   /// matches must start within the most recent 64k
-  using Distance = uint16_t;
-   
-   static constexpr int MinMatch = 4; // each match's length must be >= 4
-   static constexpr int JustLiteral = 1; // a literal needs one byte
-   static constexpr int BlockEndNoMatch = 12; // last match must not be closer than 12 bytes to the end
-   static constexpr int BlockEndLiterals =  5; // last 5 bytes must be literals, no matching allowed
-   static constexpr int HashBits = 20; // match finder's hash table size (2^HashBits entries, must be less than 32)
-   static constexpr int HashSize = 1 << HashBits;
-   static constexpr int BufferSize = 64*1024; // input buffer size, can be any number but zero ;-)
-   static constexpr int MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
-   static constexpr int EndOfChain = 0; // marker for "no match"
-   static constexpr int MaxChainLength = MaxDistance; // stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
+  typedef uint16_t Distance;
 
-   static constexpr int MaxSameLetter = 19 + 255*256; // significantly speed up parsing if the same byte is repeated a lot, may cause sub-optimal compression
+  enum
+  {
+    /// each match's length must be >= 4
+    MinMatch          =  4,
+    /// a literal needs one byte
+    JustLiteral       =  1,
+    /// last match must not be closer than 12 bytes to the end
+    BlockEndNoMatch   = 12,
+    /// last 5 bytes must be literals, no matching allowed
+    BlockEndLiterals  =  5,
 
-   /// maximum block size as defined in LZ4 spec: { 0,0,0,0,64*1024,256*1024,1024*1024,4*1024*1024 }
-   /// I only work with the biggest maximum block size (7)
-   //  note: xxhash header checksum is precalculated only for 7, too
-   static constexpr int MaxBlockSizeId = 7;
-   static constexpr int MaxBlockSize = 4*1024*1024;
+    /// match finder's hash table size (2^HashBits entries, must be less than 32)
+    HashBits          = 20,
+    HashSize          = 1 << HashBits,
 
-   static constexpr int MaxLengthCode = 255; // number of literals and match length is encoded in several bytes, max. 255 per byte
+    /// input buffer size, can be any number but zero ;-)
+    BufferSize        = 64*1024,
+
+    /// maximum match distance, must be power of 2 minus 1
+    MaxDistance       =   65535,
+    /// marker for "no match"
+    EndOfChain        =       0,
+    /// stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
+    MaxChainLength    = MaxDistance,
+
+    /// significantly speed up parsing if the same byte is repeated a lot, may cause sub-optimal compression
+    MaxSameLetter     =   19 + 255*256, // was: 19 + 255,
+
+    /// maximum block size as defined in LZ4 spec: { 0,0,0,0,64*1024,256*1024,1024*1024,4*1024*1024 }
+    /// I only work with the biggest maximum block size (7)
+    //  note: xxhash header checksum is precalculated only for 7, too
+    MaxBlockSizeId    = 7,
+    MaxBlockSize      = 4*1024*1024,
+
+    /// legacy format has a fixed block size of 8 MB
+    MaxBlockSizeLegacy = 8*1024*1024,
+
+    /// number of literals and match length is encoded in several bytes, max. 255 per byte
+    MaxLengthCode = 255
+  };
 
   //  ----- one and only variable ... -----
 
   /// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
-   uint16_t maxChainLength{};
+  unsigned short maxChainLength;
 
   //  ----- code -----
 
@@ -119,7 +132,7 @@ private:
 
 
   /// create new compressor (only invoked by lz4)
-  explicit smallz4(uint16_t newMaxChainLength = MaxChainLength)
+  explicit smallz4_original(unsigned short newMaxChainLength = MaxChainLength)
   : maxChainLength(newMaxChainLength) // => no limit, but can be changed by setMaxChainLength
   {
   }
@@ -286,12 +299,12 @@ private:
       {
         // add number of literals in higher four bits
         token |= numLiterals << 4;
-        result.emplace_back(token);
+        result.push_back(token);
       }
       else
       {
         // set all higher four bits, the following bytes with determine the exact number of literals
-        result.emplace_back(token | 0xF0);
+        result.push_back(token | 0xF0);
 
         // 15 is already encoded in token
         int encodeNumLiterals = int(numLiterals) - 15;
@@ -299,11 +312,11 @@ private:
         // emit 255 until remainder is below 255
         while (encodeNumLiterals >= MaxLengthCode)
         {
-          result.emplace_back(MaxLengthCode);
+          result.push_back(MaxLengthCode);
           encodeNumLiterals -= MaxLengthCode;
         }
         // and the last byte (can be zero, too)
-        result.emplace_back((unsigned char)encodeNumLiterals);
+        result.push_back((unsigned char)encodeNumLiterals);
       }
       // copy literals
       if (numLiterals > 0)
@@ -319,8 +332,8 @@ private:
       }
 
       // distance stored in 16 bits / little endian
-      result.emplace_back(match.distance & 0xFF);
-      result.emplace_back(match.distance >> 8);
+      result.push_back(match.distance & 0xFF);
+      result.push_back(match.distance >> 8);
 
       // >= 15+4 bytes matched
       if (matchLength >= 15)
@@ -330,11 +343,11 @@ private:
         // emit 255 until remainder is below 255
         while (matchLength >= MaxLengthCode)
         {
-          result.emplace_back(MaxLengthCode);
+          result.push_back(MaxLengthCode);
           matchLength -= MaxLengthCode;
         }
         // and the last byte (can be zero, too)
-        result.emplace_back((unsigned char)matchLength);
+        result.push_back((unsigned char)matchLength);
       }
     }
 
@@ -349,7 +362,7 @@ private:
     const size_t blockEnd = matches.size();
 
     // equals the number of bytes after compression
-    using Cost = uint32_t;
+    typedef uint32_t Cost;
     // minimum cost from this position to the end of the current block
     std::vector<Cost> cost(matches.size(), 0);
     // "cost" represents the number of bytes needed
@@ -442,19 +455,29 @@ private:
     }
   }
 
+
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
-  void compress(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const
+  void compress(GET_BYTES getBytes, SEND_BYTES sendBytes, const std::vector<unsigned char>& dictionary, bool useLegacyFormat, void* userPtr) const
   {
     // ==================== write header ====================
-     // frame header
-     const unsigned char header[] =
-     {
-       0x04, 0x22, 0x4D, 0x18, // magic bytes
-       1 << 6,                 // flags: no checksums, blocks depend on each other and no dictionary ID
-       MaxBlockSizeId << 4,    // max blocksize
-       0xDF                    // header checksum (precomputed)
-     };
-     dump({header, sizeof(header)}, b, ix);
+    if (useLegacyFormat)
+    {
+      // magic bytes
+      const unsigned char header[] = { 0x02, 0x21, 0x4C, 0x18 };
+      sendBytes(header, sizeof(header), userPtr);
+    }
+    else
+    {
+      // frame header
+      const unsigned char header[] =
+      {
+        0x04, 0x22, 0x4D, 0x18, // magic bytes
+        1 << 6,                 // flags: no checksums, blocks depend on each other and no dictionary ID
+        MaxBlockSizeId << 4,    // max blocksize
+        0xDF                    // header checksum (precomputed)
+      };
+      sendBytes(header, sizeof(header), userPtr);
+    }
 
     // ==================== declarations ====================
     // change read buffer size as you like
@@ -472,11 +495,11 @@ private:
     const bool uncompressed = (maxChainLength == 0);
 
     // last time we saw a hash
-    constexpr uint64_t NoLastHash = ~0; // = -1
+    const uint64_t NoLastHash = ~0; // = -1
     std::vector<uint64_t> lastHash(HashSize, NoLastHash);
 
     // previous position which starts with the same bytes
-    std::vector<Distance> previousHash(MaxDistance + 1, Distance(EndOfChain)); // long chains based on my simple hash
+    std::vector<Distance> previousHash (MaxDistance + 1, Distance(EndOfChain)); // long chains based on my simple hash
     std::vector<Distance> previousExact(MaxDistance + 1, Distance(EndOfChain)); // shorter chains based on exact matching of the first four bytes
     // these two containers are essential for match finding:
     // 1. I compute a hash of four byte
@@ -509,7 +532,7 @@ private:
     {
       // ==================== start new block ====================
       // first byte of the currently processed block (std::vector data may contain the last 64k of the previous block, too)
-      const unsigned char* dataBlock = nullptr;
+      const unsigned char* dataBlock = NULL;
 
       // prepend dictionary
       if (parseDictionary)
@@ -531,20 +554,18 @@ private:
       }
 
       // read more bytes from input
-      size_t maxBlockSize = MaxBlockSize;
+      size_t maxBlockSize = useLegacyFormat ? MaxBlockSizeLegacy : MaxBlockSize;
       while (numRead - nextBlock < maxBlockSize)
       {
         // buffer can be significantly smaller than MaxBlockSize, that's the only reason for this while-block
-         size_t incoming = size_t(end - it);
-         if (incoming == 0)
-           break;
-         if (BufferSize < incoming) {
-            incoming = BufferSize;
-         }
+        size_t incoming = getBytes(buffer, BufferSize, userPtr);
+        // no more data ?
+        if (incoming == 0)
+          break;
 
-        data.insert(data.end(), it, it + incoming); // TODO: use a span
-         numRead += incoming;
-         it += incoming;
+        // add bytes to buffer
+        numRead += incoming;
+        data.insert(data.end(), buffer, buffer + incoming);
       }
 
       // no more data ? => WE'RE DONE !
@@ -582,7 +603,8 @@ private:
         lookback = int64_t(dictionary.size());
       // so let's go back a few bytes
       lookback = -lookback;
-      if (uncompressed)
+      // ... but not in legacy mode
+      if (useLegacyFormat || uncompressed)
         lookback = 0;
 
       std::vector<Match> matches(uncompressed ? 0 : blockSize);
@@ -725,30 +747,53 @@ private:
 
       // did compression do harm ?
       bool useCompression = compressed.size() < blockSize && !uncompressed;
+      // legacy format is always compressed
+      useCompression |= useLegacyFormat;
 
       // block size
       uint32_t numBytes = uint32_t(useCompression ? compressed.size() : blockSize);
       uint32_t numBytesTagged = numBytes | (useCompression ? 0 : 0x80000000);
-       unsigned char num1 =  numBytesTagged         & 0xFF; dump(num1, b, ix);
-       unsigned char num2 = (numBytesTagged >>  8)  & 0xFF; dump(num2, b, ix);
-       unsigned char num3 = (numBytesTagged >> 16)  & 0xFF; dump(num3, b, ix);
-       unsigned char num4 = (numBytesTagged >> 24)  & 0xFF; dump(num4, b, ix);
+      unsigned char num1 =  numBytesTagged         & 0xFF; sendBytes(&num1, 1, userPtr);
+      unsigned char num2 = (numBytesTagged >>  8)  & 0xFF; sendBytes(&num2, 1, userPtr);
+      unsigned char num3 = (numBytesTagged >> 16)  & 0xFF; sendBytes(&num3, 1, userPtr);
+      unsigned char num4 = (numBytesTagged >> 24)  & 0xFF; sendBytes(&num4, 1, userPtr);
 
       if (useCompression)
-         dump({compressed.data(), numBytes}, b, ix);
+        sendBytes(compressed.data(),           numBytes, userPtr);
       else // uncompressed ? => copy input data
-         dump({&data[lastBlock - dataZero], numBytes}, b, ix);
+        sendBytes(&data[lastBlock - dataZero], numBytes, userPtr);
 
-       // remove already processed data except for the last 64kb which could be used for intra-block matches
-       if (data.size() > MaxDistance)
-       {
-         size_t remove = data.size() - MaxDistance;
-         dataZero += remove;
-         data.erase(data.begin(), data.begin() + remove);
-       }
+      // legacy format: no matching across blocks
+      if (useLegacyFormat)
+      {
+        dataZero += data.size();
+        data.clear();
+
+        // clear hash tables
+        for (size_t i = 0; i < previousHash .size(); i++)
+          previousHash [i] = EndOfChain;
+        for (size_t i = 0; i < previousExact.size(); i++)
+          previousExact[i] = EndOfChain;
+        for (size_t i = 0; i < lastHash.size(); i++)
+          lastHash[i] = NoLastHash;
+      }
+      else
+      {
+        // remove already processed data except for the last 64kb which could be used for intra-block matches
+        if (data.size() > MaxDistance)
+        {
+          size_t remove = data.size() - MaxDistance;
+          dataZero += remove;
+          data.erase(data.begin(), data.begin() + remove);
+        }
+      }
     }
 
-     constexpr uint32_t zero = 0;
-     dump_type(zero, b, ix);
+    // add an empty block
+    if (!useLegacyFormat)
+    {
+      static const uint32_t zero = 0;
+      sendBytes(&zero, 4, userPtr);
+    }
   }
 };
