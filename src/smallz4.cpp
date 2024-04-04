@@ -404,6 +404,8 @@ int main(int argc, const char* argv[])
    if (decompressed == text) {
       std::cout << "decompression succeeded!\n";
    }
+   
+   //decompress_lz4(compressed);
 
    std::cout << '\n';
 

@@ -215,11 +215,10 @@ struct smallz4
 
    /// create shortest output
    /** data points to block's begin; we need it to extract literals **/
-   static std::vector<unsigned char> selectBestMatches(const std::vector<Match>& matches,
-                                                       const unsigned char* const data)
+   static void selectBestMatches(const std::vector<Match>& matches,
+                                                       const unsigned char* const data, std::vector<unsigned char>& result)
    {
-      // store encoded data
-      std::vector<unsigned char> result;
+      result.clear();
       result.reserve(matches.size());
 
       // indices of current run of literals
@@ -229,10 +228,10 @@ struct smallz4
       bool lastToken = false;
 
       // walk through the whole block
-      for (size_t offset = 0; offset < matches.size();) // increment inside of loop
+      const auto n_matches = matches.size();
+      for (size_t offset = 0; offset < n_matches;) // increment inside of loop
       {
-         // get best cost-weighted match
-         Match match = matches[offset];
+         const Match match = matches[offset]; // get best cost-weighted match
 
          // if no match, then count literals instead
          if (match.length <= JustLiteral) {
@@ -240,28 +239,24 @@ struct smallz4
             if (numLiterals == 0) {
                literalsFrom = offset;
             }
-
-            // add one more literal to current sequence
-            ++numLiterals;
-
-            // next match
-            ++offset;
+            
+            ++numLiterals; // add one more literal to current sequence
+            ++offset; // next match
 
             // continue unless it's the last literal
-            if (offset < matches.size()) continue;
+            if (offset < n_matches) {
+               continue;
+            }
 
             lastToken = true;
          }
          else {
-            // skip unused matches
-            offset += match.length;
+            offset += match.length; // skip unused matches
          }
 
          // store match length (4 is implied because it's the minimum match length)
-         int matchLength = int(match.length) - MinMatch;
-
          // last token has zero length
-         if (lastToken) matchLength = 0;
+         int matchLength = lastToken ? 0 : (int(match.length) - MinMatch);
 
          // token consists of match length and number of literals, let's start with match length ...
          unsigned char token = (matchLength < 15) ? (unsigned char)matchLength : 15;
@@ -315,8 +310,6 @@ struct smallz4
             result.emplace_back((unsigned char)matchLength);
          }
       }
-
-      return result;
    }
 
    /// walk backwards through all matches and compute number of compressed bytes from current position to the end of the
@@ -484,9 +477,10 @@ struct smallz4
          // ==================== start new block ====================
          // first byte of the currently processed block (data may contain the last 64k of the previous block, too)
          const unsigned char* dataBlock = nullptr;
-
+         
          // prepend dictionary
          if (parseDictionary) {
+            throw std::runtime_error("parseDictionary doesn't work with the single buffer approach, need to add a compile time option for a dictionary buffer");
             // copy only the most recent 64k of the dictionary
             if (dictionary.size() < MaxDistance) {
                data = {dictionary.data(), dictionary.size()};
@@ -494,11 +488,11 @@ struct smallz4
             else {
                data = {dictionary.data(), MaxDistance};
             }
-
+            
             nextBlock = data.size();
             numRead = data.size();
          }
-
+         
          // read more bytes from input
          if (const size_t incoming = size_t(end - it); incoming)
          {
@@ -511,7 +505,7 @@ struct smallz4
             numRead += incoming;
             it += incoming;
          }
-
+         
          if (nextBlock == numRead) {
             break; // finished reading
          }
@@ -524,15 +518,15 @@ struct smallz4
          if (nextBlock > numRead) {
             nextBlock = numRead;
          }
-
-         // pointer to first byte of the currently processed block (the std::vector container named data may contain the
+         
+         // pointer to first byte of the currently processed block (the container named data may contain the
          // last 64k of the previous block, too)
          dataBlock = &data[lastBlock - dataZero];
-
+         
          const uint64_t blockSize = nextBlock - lastBlock;
-
+         
          // ==================== full match finder ====================
-
+         
          // greedy mode is much faster but produces larger output
          const bool isGreedy = (maxChainLength <= ShortChainsGreedy);
          // lazy evaluation: if there is a match, then try running match finder on next position, too, but not after
@@ -542,10 +536,12 @@ struct smallz4
          Length skipMatches = 0;
          // allow match finding on the next byte but skip afterwards (in lazy mode)
          bool lazyEvaluation = false;
-
+         
          // the last literals of the previous block skipped matching, so they are missing from the hash chains
          int64_t lookback = int64_t(dataZero);
-         if (lookback > BlockEndNoMatch && !parseDictionary) lookback = BlockEndNoMatch;
+         if (lookback > BlockEndNoMatch && !parseDictionary) {
+            lookback = BlockEndNoMatch;
+         }
          if (parseDictionary) {
             lookback = int64_t(dictionary.size());
          }
@@ -554,7 +550,7 @@ struct smallz4
          if (uncompressed) {
             lookback = 0;
          }
-
+         
          std::vector<Match> matches(uncompressed ? 0 : blockSize);
          // find longest matches for each position (skip if level=0 which means "uncompressed")
          int64_t i;
@@ -572,24 +568,23 @@ struct smallz4
                   continue;
                }
             }
-
             
             const uint32_t four = *(uint32_t*)(dataBlock + i); // read next four bytes
             const uint32_t hash = getHash32(four); // convert to a shorter hash
             
             uint64_t lastHashMatch = lastHash[hash]; // get most recent position of this hash
             lastHash[hash] = i + lastBlock; // and store current position
-
+            
             // remember: i could be negative, too
             Distance prevIndex = (i + MaxDistance + 1) & MaxDistance; // actually the same as i & MaxDistance
-
+            
             // no predecessor / no hash chain available ?
             if (lastHashMatch == NoLastHash) {
                previousHash[prevIndex] = EndOfChain;
                previousExact[prevIndex] = EndOfChain;
                continue;
             }
-
+            
             // most recent hash match too far away ?
             uint64_t distance = lastHash[hash] - lastHashMatch;
             if (distance > MaxDistance) {
@@ -597,10 +592,10 @@ struct smallz4
                previousExact[prevIndex] = EndOfChain;
                continue;
             }
-
+            
             // build hash chain, i.e. store distance to last pseudo-match
             previousHash[prevIndex] = Distance(distance);
-
+            
             // skip pseudo-matches (hash collisions) and build a second chain where the first four bytes must match
             // exactly
             uint32_t currentFour;
@@ -608,26 +603,30 @@ struct smallz4
             while (true) {
                // read four bytes
                currentFour =
-                  *(uint32_t*)(&data[lastHashMatch - dataZero]); // match may be found in the previous block, too
+               *(uint32_t*)(&data[lastHashMatch - dataZero]); // match may be found in the previous block, too
                // match chain found, first 4 bytes are identical
-               if (currentFour == four) break;
-
+               if (currentFour == four) {
+                  break;
+               }
+               
                // prevent from accidently hopping on an old, wrong hash chain
-               if (hash != getHash32(currentFour)) break;
-
+               if (hash != getHash32(currentFour)) {
+                  break;
+               }
+               
                // try next pseudo-match
                Distance next = previousHash[lastHashMatch & MaxDistance];
                // end of the hash chain ?
                if (next == EndOfChain) {
                   break;
                }
-
+               
                // too far away ?
                distance += next;
                if (distance > MaxDistance) {
                   break;
                }
-
+               
                // take another step along the hash chain ...
                lastHashMatch -= next;
                // closest match is out of range ?
@@ -635,33 +634,33 @@ struct smallz4
                   break;
                }
             }
-
+            
             // search aborted / failed ?
             if (four != currentFour) {
                // no matches for the first four bytes
                previousExact[prevIndex] = EndOfChain;
                continue;
             }
-
+            
             // store distance to previous match
             previousExact[prevIndex] = (Distance)distance;
-
+            
             // no matching if crossing block boundary, just update hash tables
             if (i < 0) {
                continue;
             }
-
+            
             // skip match finding if in greedy mode
             if (skipMatches > 0) {
                skipMatches--;
                if (!lazyEvaluation) continue;
                lazyEvaluation = false;
             }
-
+            
             // and after all that preparation ... finally look for the longest match
             matches[i] = findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
                                           previousExact.data());
-
+            
             // no match finding needed for the next few bytes in greedy/lazy mode
             if ((isLazy || isGreedy) && matches[i].length != JustLiteral) {
                lazyEvaluation = (skipMatches == 0);
@@ -669,21 +668,24 @@ struct smallz4
             }
          }
          // last bytes are always literals
-         while (i < int(matches.size())) {
+         while (i < int64_t(matches.size())) {
             matches[i++].length = JustLiteral;
          }
-
+         
          // dictionary is valid only to the first block
          parseDictionary = false;
-
+         
          // ==================== estimate costs (number of compressed bytes) ====================
-
+         
          // not needed in greedy mode and/or very short blocks
-         if (matches.size() > BlockEndNoMatch && maxChainLength > ShortChainsGreedy) estimateCosts(matches);
-
+         if (matches.size() > BlockEndNoMatch && maxChainLength > ShortChainsGreedy) {
+            estimateCosts(matches);
+         }
+         
          // ==================== select best matches ====================
-
-         std::vector<unsigned char> compressed = selectBestMatches(matches, &data[lastBlock - dataZero]);
+         
+         std::vector<unsigned char> compressed{};
+         selectBestMatches(matches, &data[lastBlock - dataZero], compressed);
 
          // ==================== output ====================
 
