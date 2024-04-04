@@ -591,7 +591,7 @@ struct smallz4
             lastHash[hash] = i + lastBlock; // and store current position
             
             // remember: i could be negative, too
-            Distance prevIndex = (i + MaxDistance + 1) & MaxDistance; // actually the same as i & MaxDistance
+            const Distance prevIndex = (i + MaxDistance + 1) & MaxDistance; // actually the same as i & MaxDistance
             
             // no predecessor / no hash chain available ?
             if (lastHashMatch == NoLastHash) {
