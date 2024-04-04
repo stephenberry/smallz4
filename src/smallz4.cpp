@@ -290,8 +290,6 @@ void test_lz4(const std::string& originalText)
    std::cout << "lz4 compression time: "
              << duration << '\n';
    
-   std::cout << "lz4 compression time: "
-             << duration << '\n';
    auto mbytes_per_sec = originalText.size() / (duration * 1048576);
    std::cout << "original speed: " << mbytes_per_sec << " MB/s\n";
 
@@ -406,6 +404,9 @@ int main(int argc, const char* argv[])
    std::cout << '\n';
    if (original_out == compressed) {
       std::cout << "refactored matches original!\n";
+   }
+   else {
+      std::cout << "REFACTORING DOESN'T MATCH!\n";
    }
 
    it = reinterpret_cast<const unsigned char*>(compressed.data());
