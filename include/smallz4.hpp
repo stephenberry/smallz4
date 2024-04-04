@@ -110,7 +110,7 @@ struct smallz4
    explicit smallz4(uint16_t newMaxChainLength = MaxChainLength) : maxChainLength(newMaxChainLength) {}
 
    /// return true, if the four bytes at *a and *b match
-   inline static constexpr bool match4(const void* const a, const void* const b)
+   inline static constexpr bool match4(const void* const a, const void* const b) noexcept
    {
       return *(const uint32_t*)a == *(const uint32_t*)b;
    }
@@ -583,7 +583,8 @@ struct smallz4
                }
             }
             
-            const uint32_t four = *(uint32_t*)(dataBlock + i); // read next four bytes
+            uint32_t four; // read next four bytes
+            std::memcpy(&four, dataBlock + i, 4);
             const uint32_t hash = getHash32(four); // convert to a shorter hash
             
             uint64_t lastHashMatch = lastHash[hash]; // get most recent position of this hash
