@@ -47,17 +47,6 @@ struct smallz4
       ++ix;
    }
 
-   static inline void dump(const std::span<const std::byte> bytes, std::string& b, size_t& ix) noexcept
-   {
-      const auto n = bytes.size();
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-
-      std::memcpy(b.data() + ix, bytes.data(), n);
-      ix += n;
-   }
-
    static inline void dump_type(auto&& value, std::string& b, size_t& ix) noexcept
    {
       constexpr auto n = sizeof(std::decay_t<decltype(value)>);
@@ -98,15 +87,13 @@ struct smallz4
    static constexpr int MaxBlockSize = 4 * 1024 * 1024;
 
    static constexpr int MaxLengthCode =
-      255; // number of literals and match length is encoded in several bytes, max. 255 per byte
+      255; // number of literals and match length is encoded in several bytes, max 255 per byte
 
    //  ----- one and only variable ... -----
 
    /// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse
    /// compression ratio
    uint16_t maxChainLength{};
-
-   //  ----- code -----
 
    /// match
    struct Match
@@ -197,9 +184,13 @@ struct smallz4
          const unsigned char* phase2 = atLeast;
 
          // fast loop: check four bytes at once
-         while (phase2 + CheckAtOnce <= stop && match4(phase2, phase2 - totalDistance)) phase2 += CheckAtOnce;
+         while (phase2 + CheckAtOnce <= stop && match4(phase2, phase2 - totalDistance)) {
+            phase2 += CheckAtOnce;
+         }
          // slow loop: check the last 1/2/3 bytes
-         while (phase2 < stop && *phase2 == *(phase2 - totalDistance)) phase2++;
+         while (phase2 < stop && *phase2 == *(phase2 - totalDistance)) {
+            ++phase2;
+         }
 
          // store new best match
          result.distance = Distance(totalDistance);
@@ -236,13 +227,15 @@ struct smallz4
          // if no match, then count literals instead
          if (match.length <= JustLiteral) {
             // first literal ? need to reset pointers of current sequence of literals
-            if (numLiterals == 0) literalsFrom = offset;
+            if (numLiterals == 0) {
+               literalsFrom = offset;
+            }
 
             // add one more literal to current sequence
-            numLiterals++;
+            ++numLiterals;
 
             // next match
-            offset++;
+            ++offset;
 
             // continue unless it's the last literal
             if (offset < matches.size()) continue;
@@ -332,8 +325,8 @@ struct smallz4
       // the last bytes must always be literals
       Length numLiterals = BlockEndLiterals;
       // backwards optimal parsing
-      for (int64_t i = (int64_t)blockEnd - (1 + BlockEndLiterals); i >= 0;
-           i--) // ignore the last 5 bytes, they are always literals
+      for (int64_t i = int64_t(blockEnd) - (1 + BlockEndLiterals); i >= 0;
+           --i) // ignore the last 5 bytes, they are always literals
       {
          // if encoded as a literal
          numLiterals++;
