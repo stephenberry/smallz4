@@ -140,16 +140,15 @@ struct smallz4
 
       // get distance to previous match, abort if 0 => not existing
       Distance distance = chain[pos & MaxDistance];
-      int64_t totalDistance = 0;
+      uint32_t totalDistance = 0;
       while (distance != EndOfChain) {
          // chain goes too far back ?
          totalDistance += distance;
          if (totalDistance > MaxDistance) {
             break; // can't match beyond 64k
          }
-
-         // prepare next position
-         distance = chain[(pos - totalDistance) & MaxDistance];
+         
+         distance = chain[(pos - totalDistance) & MaxDistance]; // prepare next position
 
          // let's introduce a new pointer atLeast that points to the first "new" byte of a potential longer match
          const unsigned char* const atLeast = current + result_length + 1;

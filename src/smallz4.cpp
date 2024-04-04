@@ -349,7 +349,7 @@ int main(int argc, const char* argv[])
 
    std::uniform_int_distribution<uint8_t> dist{40, 45};
    std::mt19937_64 generator{};
-   for (size_t i = 0; i < 1'000'000; ++i) {
+   for (size_t i = 0; i < 5'000'000; ++i) {
       text.push_back(dist(generator));
    }
 
