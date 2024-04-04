@@ -99,6 +99,12 @@ struct smallz4
    /// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse
    /// compression ratio
    uint16_t maxChainLength{};
+   
+   struct Matches
+   {
+      std::vector<Length> lengths{}; // lengths of matches
+      std::vector<Distance> distances{}; // distances of matches
+   };
 
    struct Match
    {
@@ -215,12 +221,12 @@ struct smallz4
 
    /// create shortest output
    /** data points to block's begin; we need it to extract literals **/
-   static void selectBestMatches(const std::vector<Match>& matches,
+   static void selectBestMatches(const Matches& matches,
                                                        const unsigned char* const data, std::vector<unsigned char>& result)
    {
-      const auto n_matches = matches.size();
+      const auto n_matches = matches.lengths.size();
       result.clear();
-      result.reserve(matches.size());
+      result.reserve(n_matches);
 
       // indices of current run of literals
       size_t literalsFrom = 0;
@@ -231,10 +237,11 @@ struct smallz4
       // walk through the whole block
       for (size_t offset = 0; offset < n_matches;) // increment inside of loop
       {
-         const Match match = matches[offset]; // get best cost-weighted match
+         const auto length = matches.lengths[offset]; // get best cost-weighted match
+         const auto distance = matches.distances[offset]; // get best cost-weighted match
 
          // if no match, then count literals instead
-         if (match.length <= JustLiteral) {
+         if (length <= JustLiteral) {
             // first literal ? need to reset pointers of current sequence of literals
             if (numLiterals == 0) {
                literalsFrom = offset;
@@ -251,12 +258,12 @@ struct smallz4
             lastToken = true;
          }
          else {
-            offset += match.length; // skip unused matches
+            offset += length; // skip unused matches
          }
 
          // store match length (4 is implied because it's the minimum match length)
          // last token has zero length
-         int matchLength = lastToken ? 0 : (int(match.length) - MinMatch);
+         int matchLength = lastToken ? 0 : (int(length) - MinMatch);
 
          // token consists of match length and number of literals, let's start with match length ...
          unsigned char token = (matchLength < 15) ? (unsigned char)matchLength : 15;
@@ -295,8 +302,8 @@ struct smallz4
          }
 
          // distance stored in 16 bits / little endian
-         result.emplace_back(match.distance & 0xFF);
-         result.emplace_back(match.distance >> 8);
+         result.emplace_back(distance & 0xFF);
+         result.emplace_back(distance >> 8);
 
          // >= 15+4 bytes matched
          if (matchLength >= 15) {
@@ -316,14 +323,14 @@ struct smallz4
    /// walk backwards through all matches and compute number of compressed bytes from current position to the end of the
    /// block
    /** note: matches are modified (shortened length) if necessary **/
-   static void estimateCosts(std::vector<Match>& matches)
+   static void estimateCosts(Matches& matches)
    {
-      const size_t blockEnd = matches.size();
+      const size_t blockEnd = matches.lengths.size();
 
       // equals the number of bytes after compression
       using Cost = uint32_t;
       // minimum cost from this position to the end of the current block
-      std::vector<Cost> cost(matches.size(), 0);
+      std::vector<Cost> cost(blockEnd, 0);
       // "cost" represents the number of bytes needed
 
       // the last bytes must always be literals
@@ -347,7 +354,7 @@ struct smallz4
          }
 
          // let's look at the longest match, almost always more efficient that the plain literals
-         Match match = matches[i];
+         Match match{ matches.lengths[i], matches.distances[i] };
 
          // very long self-referencing matches can slow down the program A LOT
          if (match.length >= MaxSameLetter && match.distance == 1) {
@@ -398,7 +405,7 @@ struct smallz4
          cost[i] = minCost;
 
          // and adjust best match
-         matches[i].length = bestLength;
+         matches.lengths[i] = bestLength;
 
          // reset number of literals if a match was chosen
          if (bestLength != JustLiteral) numLiterals = 0;
@@ -552,20 +559,23 @@ struct smallz4
             lookback = 0;
          }
          
-         std::vector<Match> matches(uncompressed ? 0 : blockSize);
+         const auto n_matches = (uncompressed ? 0 : blockSize);
+         Matches matches;
+         matches.lengths.resize(n_matches);
+         matches.distances.resize(n_matches);
          // find longest matches for each position (skip if level=0 which means "uncompressed")
          int64_t i;
          for (i = lookback; i + BlockEndNoMatch <= int64_t(blockSize) && !uncompressed; ++i) {
             // detect self-matching
             if (i > 0 && dataBlock[i] == dataBlock[i - 1]) {
-               Match prevMatch = matches[i - 1];
+               Match prevMatch{ matches.lengths[i - 1], matches.distances[i - 1] };
                // predecessor had the same match ?
                if (prevMatch.distance == 1 &&
                    prevMatch.length > MaxSameLetter) // TODO: handle very long self-referencing matches
                {
                   // just copy predecessor without further (expensive) optimizations
-                  matches[i].distance = 1;
-                  matches[i].length = prevMatch.length - 1;
+                  matches.distances[i] = 1;
+                  matches.lengths[i] = prevMatch.length - 1;
                   continue;
                }
             }
@@ -653,24 +663,29 @@ struct smallz4
             
             // skip match finding if in greedy mode
             if (skipMatches > 0) {
-               skipMatches--;
-               if (!lazyEvaluation) continue;
+               --skipMatches;
+               if (!lazyEvaluation) {
+                  continue;
+               }
                lazyEvaluation = false;
             }
             
             // and after all that preparation ... finally look for the longest match
-            matches[i] = findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
+            const auto match = findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
                                           previousExact.data());
+            matches.lengths[i] = match.length;
+            matches.distances[i] = match.distance;
             
             // no match finding needed for the next few bytes in greedy/lazy mode
-            if ((isLazy || isGreedy) && matches[i].length != JustLiteral) {
+            if ((isLazy || isGreedy) && matches.lengths[i] != JustLiteral) {
                lazyEvaluation = (skipMatches == 0);
-               skipMatches = matches[i].length;
+               skipMatches = matches.lengths[i];
             }
          }
          // last bytes are always literals
-         while (i < int64_t(matches.size())) {
-            matches[i++].length = JustLiteral;
+         const auto n_lengths = int64_t(n_matches);
+         while (i < n_lengths) {
+            matches.lengths[i++] = JustLiteral;
          }
          
          // dictionary is valid only to the first block
@@ -679,7 +694,7 @@ struct smallz4
          // ==================== estimate costs (number of compressed bytes) ====================
          
          // not needed in greedy mode and/or very short blocks
-         if (matches.size() > BlockEndNoMatch && maxChainLength > ShortChainsGreedy) {
+         if (n_matches > BlockEndNoMatch && maxChainLength > ShortChainsGreedy) {
             estimateCosts(matches);
          }
          
