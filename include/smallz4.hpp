@@ -30,6 +30,49 @@ struct smallz4
     /// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
     ShortChainsLazy   = 6
   };
+   
+   static inline void dump(const std::span<const unsigned char> str, std::string& b, size_t& ix) noexcept
+   {
+      const auto n = str.size();
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+      
+      std::memcpy(b.data() + ix, str.data(), n);
+      ix += n;
+   }
+   
+   static inline void dump(const unsigned char c, std::string& b, size_t& ix) noexcept
+   {
+      if (ix == b.size()) [[unlikely]] {
+         b.resize(b.size() == 0 ? 128 : b.size() * 2);
+      }
+
+      b[ix] = c;
+      ++ix;
+   }
+   
+   static inline void dump(const std::span<const std::byte> bytes, std::string& b, size_t& ix) noexcept
+   {
+      const auto n = bytes.size();
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+
+      std::memcpy(b.data() + ix, bytes.data(), n);
+      ix += n;
+   }
+   
+   static inline void dump_type(auto&& value, std::string& b, size_t& ix) noexcept
+   {
+      constexpr auto n = sizeof(std::decay_t<decltype(value)>);
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+
+      std::memcpy(b.data() + ix, &value, n);
+      ix += n;
+   }
 
 private:
   /// a block can be up to 4 MB, so uint32_t would suffice but uint64_t is quite a bit faster on my x64 machine
@@ -306,7 +349,7 @@ private:
     const size_t blockEnd = matches.size();
 
     // equals the number of bytes after compression
-    typedef uint32_t Cost;
+    using Cost = uint32_t;
     // minimum cost from this position to the end of the current block
     std::vector<Cost> cost(matches.size(), 0);
     // "cost" represents the number of bytes needed
@@ -398,49 +441,6 @@ private:
       //       which could be more cache-friendly (=> faster decoding)
     }
   }
-   
-   static inline void dump(const std::span<const unsigned char> str, std::string& b, size_t& ix) noexcept
-   {
-      const auto n = str.size();
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-      
-      std::memcpy(b.data() + ix, str.data(), n);
-      ix += n;
-   }
-   
-   static inline void dump(const unsigned char c, std::string& b, size_t& ix) noexcept
-   {
-      if (ix == b.size()) [[unlikely]] {
-         b.resize(b.size() == 0 ? 128 : b.size() * 2);
-      }
-
-      b[ix] = c;
-      ++ix;
-   }
-   
-   static inline void dump(const std::span<const std::byte> bytes, std::string& b, size_t& ix) noexcept
-   {
-      const auto n = bytes.size();
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-
-      std::memcpy(b.data() + ix, bytes.data(), n);
-      ix += n;
-   }
-   
-   static inline void dump_type(auto&& value, std::string& b, size_t& ix) noexcept
-   {
-      constexpr auto n = sizeof(std::decay_t<decltype(value)>);
-      if (ix + n > b.size()) [[unlikely]] {
-         b.resize((std::max)(b.size() * 2, ix + n));
-      }
-
-      std::memcpy(b.data() + ix, &value, n);
-      ix += n;
-   }
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
   void compress(const char*& it, const char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const

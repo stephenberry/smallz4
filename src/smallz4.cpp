@@ -4,6 +4,288 @@
 #include <ctime>      // time (verbose output)
 #include <cstdlib>  // exit
 
+// This program is a shorter, more readable, albeit slower re-implementation of lz4cat ( https://github.com/Cyan4973/xxHash )
+
+// Limitations:
+// - skippable frames and legacy frames are not implemented (and most likely never will)
+// - checksums are not verified (see https://create.stephan-brumme.com/xxhash/ for a simple implementation)
+
+#include <stdio.h>  // stdin/stdout/stderr, fopen, ...
+#include <stdlib.h> // exit()
+#include <string.h> // memcpy
+
+#ifndef FALSE
+#define FALSE 0
+#define TRUE  1
+#endif
+
+/// error handler
+static void unlz4error(const char* msg)
+{
+  // smaller static binary than fprintf(stderr, "ERROR: %s\n", msg);
+  fputs("ERROR: ", stderr);
+  fputs(msg,       stderr);
+  fputc('\n',      stderr);
+  exit(1);
+}
+
+
+// ==================== LZ4 DECOMPRESSOR ====================
+
+
+/// decompress everything in input stream (accessed via getByte) and write to output stream (via sendBytes)
+void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const char* dictionary)
+{
+  // signature
+   unsigned char signature1 = *it; ++it;
+   unsigned char signature2 = *it; ++it;
+   unsigned char signature3 = *it; ++it;
+   unsigned char signature4 = *it; ++it;
+  unsigned int  signature  = (signature4 << 24) | (signature3 << 16) | (signature2 << 8) | signature1;
+  unsigned char isModern   = (signature == 0x184D2204);
+  unsigned char isLegacy   = (signature == 0x184C2102);
+  if (!isModern)
+    unlz4error("invalid signature");
+
+  unsigned char hasBlockChecksum   = FALSE;
+  unsigned char hasContentSize     = FALSE;
+  unsigned char hasContentChecksum = FALSE;
+  unsigned char hasDictionaryID    = FALSE;
+  if (isModern)
+  {
+    // flags
+     unsigned char flags = *it; ++it;
+    hasBlockChecksum   = flags & 16;
+    hasContentSize     = flags &  8;
+    hasContentChecksum = flags &  4;
+    hasDictionaryID    = flags &  1;
+
+    // only version 1 file format
+    unsigned char version = flags >> 6;
+    if (version != 1)
+      unlz4error("only LZ4 file format version 1 supported");
+
+    // ignore blocksize
+    char numIgnore = 1;
+
+    // ignore, skip 8 bytes
+    if (hasContentSize)
+      numIgnore += 8;
+    // ignore, skip 4 bytes
+    if (hasDictionaryID)
+      numIgnore += 4;
+
+    // ignore header checksum (xxhash32 of everything up this point & 0xFF)
+    numIgnore++;
+
+    // skip all those ignored bytes
+    while (numIgnore--)
+       ++it;
+  }
+
+  // don't lower this value, backreferences can be 64kb far away
+   static constexpr size_t HISTORY_SIZE = 64*1024;
+  // contains the latest decoded data
+  unsigned char history[HISTORY_SIZE];
+  // next free position in history[]
+  unsigned int  pos = 0;
+
+  // dictionary compression is a recently introduced feature, just move its contents to the buffer
+  if (dictionary != NULL)
+  {
+    // open dictionary
+    FILE* dict = fopen(dictionary, "rb");
+    if (!dict)
+      unlz4error("cannot open dictionary");
+
+    // get dictionary's filesize
+    fseek(dict, 0, SEEK_END);
+    long dictSize = ftell(dict);
+    // only the last 64k are relevant
+    long relevant = dictSize < 65536 ? 0 : dictSize - 65536;
+    fseek(dict, relevant, SEEK_SET);
+    if (dictSize > 65536)
+      dictSize = 65536;
+    // read it and store it at the end of the buffer
+    fread(history + HISTORY_SIZE - dictSize, 1, dictSize, dict);
+    fclose(dict);
+  }
+
+  // parse all blocks until blockSize == 0
+  while (true)
+  {
+    // block size
+     unsigned int blockSize = *it; ++it;
+     blockSize |= (unsigned int)(*it) <<  8; ++it;
+     blockSize |= (unsigned int)(*it) << 16; ++it;
+     blockSize |= (unsigned int)(*it) << 24; ++it;
+
+    // highest bit set ?
+    unsigned char isCompressed = isLegacy || (blockSize & 0x80000000) == 0;
+    if (isModern)
+      blockSize &= 0x7FFFFFFF;
+
+    // stop after last block
+    if (blockSize == 0)
+      break;
+
+    if (isCompressed)
+    {
+      // decompress block
+      unsigned int blockOffset = 0;
+      unsigned int numWritten  = 0;
+      while (blockOffset < blockSize)
+      {
+        // get a token
+         unsigned char token = *it; ++it;
+        blockOffset++;
+
+        // determine number of literals
+        unsigned int numLiterals = token >> 4;
+        if (numLiterals == 15)
+        {
+          // number of literals length encoded in more than 1 byte
+          unsigned char current;
+          do
+          {
+             current = *it; ++it;
+            numLiterals += current;
+            blockOffset++;
+          } while (current == 255);
+        }
+
+        blockOffset += numLiterals;
+
+        // copy all those literals
+        if (pos + numLiterals < HISTORY_SIZE)
+        {
+          // fast loop
+           while (numLiterals-- > 0) {
+              history[pos++] = *it;
+              ++it;
+           }
+        }
+        else
+        {
+          // slow loop
+          while (numLiterals-- > 0)
+          {
+             history[pos++] = *it; ++it;
+
+            // flush output buffer
+            if (pos == HISTORY_SIZE)
+            {
+               smallz4::dump({history, HISTORY_SIZE}, b, ix);
+              numWritten += HISTORY_SIZE;
+              pos = 0;
+            }
+          }
+        }
+
+        // last token has only literals
+        if (blockOffset == blockSize)
+          break;
+
+        // match distance is encoded in two bytes (little endian)
+         unsigned int delta = *it; ++it;
+         delta |= (unsigned int)(*it) << 8; ++it;
+        // zero isn't allowed
+        if (delta == 0)
+          unlz4error("invalid offset");
+        blockOffset += 2;
+
+        // match length (always >= 4, therefore length is stored minus 4)
+        unsigned int matchLength = 4 + (token & 0x0F);
+        if (matchLength == 4 + 0x0F)
+        {
+          unsigned char current;
+          do // match length encoded in more than 1 byte
+          {
+             current = *it; ++it;
+            matchLength += current;
+            blockOffset++;
+          } while (current == 255);
+        }
+
+        // copy match
+        unsigned int referencePos = (pos >= delta) ? (pos - delta) : (HISTORY_SIZE + pos - delta);
+        // start and end within the current 64k block ?
+        if (pos + matchLength < HISTORY_SIZE && referencePos + matchLength < HISTORY_SIZE)
+        {
+          // read/write continuous block (no wrap-around at the end of history[])
+          // fast copy
+          if (pos >= referencePos + matchLength || referencePos >= pos + matchLength)
+          {
+            // non-overlapping
+            memcpy(history + pos, history + referencePos, matchLength);
+            pos += matchLength;
+          }
+          else
+          {
+            // overlapping, slower byte-wise copy
+            while (matchLength-- > 0)
+              history[pos++] = history[referencePos++];
+          }
+        }
+        else
+        {
+          // either read or write wraps around at the end of history[]
+          while (matchLength-- > 0)
+          {
+            // copy single byte
+            history[pos++] = history[referencePos++];
+
+            // cannot write anymore ? => wrap around
+            if (pos == HISTORY_SIZE)
+            {
+              // flush output buffer
+               smallz4::dump({history, HISTORY_SIZE}, b, ix);
+              numWritten += HISTORY_SIZE;
+              pos = 0;
+            }
+            // wrap-around of read location
+            referencePos %= HISTORY_SIZE;
+          }
+        }
+      }
+
+      // all legacy blocks must be completely filled - except for the last one
+      if (isLegacy && numWritten + pos < 8*1024*1024)
+        break;
+    }
+    else
+    {
+      // copy uncompressed data and add to history, too (if next block is compressed and some matches refer to this block)
+      while (blockSize-- > 0)
+      {
+        // copy a byte ...
+         history[pos++] = *it; ++it;
+        // ... until buffer is full => send to output
+        if (pos == HISTORY_SIZE)
+        {
+           smallz4::dump({history, HISTORY_SIZE}, b, ix);
+          pos = 0;
+        }
+      }
+    }
+
+    if (hasBlockChecksum)
+    {
+      // ignore checksum, skip 4 bytes
+       it += 4;
+    }
+  }
+
+  if (hasContentChecksum)
+  {
+    // ignore checksum, skip 4 bytes
+     it += 4;
+  }
+
+  // flush output buffer
+   smallz4::dump({history, pos}, b, ix);
+}
+
 /// error handler
 /*static void error(const char* msg, int code = 1)
 {
@@ -328,6 +610,14 @@ int main(int argc, const char* argv[])
    
    std::cout << text.size() << ", " << compressed.size() << '\n';
    //std::cout << out << '\n';
+   
+   it = compressed.data();
+   end = it + compressed.size();
+   ix = 0;
+   std::string decompressed{};
+   unlz4(it, end, decompressed, ix, nullptr);
+   decompressed.resize(ix);
+   std::cout << decompressed << '\n';
 
   return 0;
 }
