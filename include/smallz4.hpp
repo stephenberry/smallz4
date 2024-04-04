@@ -5,39 +5,21 @@
 #pragma once
 
 #include <cstdint>
-#include <string_view>
+#include <span>
+#include <string>
 #include <vector>
 
 /// LZ4 compression with optimal parsing
 struct smallz4
 {
-  // read  several bytes, see getBytesFromIn() in smallz4.cpp for a basic implementation
-   using GET_BYTES = size_t(*)(void* data, size_t numBytes, void* userPtr);
-  // write several bytes, see sendBytesToOut() in smallz4.cpp for a basic implementation
-   using SEND_BYTES = void(*)(const void* data, size_t numBytes, void* userPtr);
-
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
-                  unsigned short maxChainLength = MaxChainLength,
-                  void* userPtr = nullptr)
-  {
-    lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>(), userPtr);
-  }
-
-  /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
-                  unsigned short maxChainLength,
-                  const std::vector<unsigned char>& dictionary, // predefined dictionary
+  static void lz4(const char*& it, const char* end, std::string& b, size_t& ix,
+                  uint16_t maxChainLength = MaxChainLength,
+                  const std::vector<unsigned char>& dictionary = {}, // predefined dictionary
                   void* userPtr = nullptr)
   {
     smallz4 obj(maxChainLength);
-    obj.compress(getBytes, sendBytes, dictionary, userPtr);
-  }
-
-  /// version string
-  static const char* const getVersion()
-  {
-    return "1.5";
+    obj.compress(it, end, b, ix, dictionary, userPtr);
   }
 
   // compression level thresholds, made public because I display them in the help screen ...
@@ -261,12 +243,12 @@ private:
       {
         // add number of literals in higher four bits
         token |= numLiterals << 4;
-        result.push_back(token);
+        result.emplace_back(token);
       }
       else
       {
         // set all higher four bits, the following bytes with determine the exact number of literals
-        result.push_back(token | 0xF0);
+        result.emplace_back(token | 0xF0);
 
         // 15 is already encoded in token
         int encodeNumLiterals = int(numLiterals) - 15;
@@ -274,11 +256,11 @@ private:
         // emit 255 until remainder is below 255
         while (encodeNumLiterals >= MaxLengthCode)
         {
-          result.push_back(MaxLengthCode);
+          result.emplace_back(MaxLengthCode);
           encodeNumLiterals -= MaxLengthCode;
         }
         // and the last byte (can be zero, too)
-        result.push_back((unsigned char)encodeNumLiterals);
+        result.emplace_back((unsigned char)encodeNumLiterals);
       }
       // copy literals
       if (numLiterals > 0)
@@ -294,8 +276,8 @@ private:
       }
 
       // distance stored in 16 bits / little endian
-      result.push_back(match.distance & 0xFF);
-      result.push_back(match.distance >> 8);
+      result.emplace_back(match.distance & 0xFF);
+      result.emplace_back(match.distance >> 8);
 
       // >= 15+4 bytes matched
       if (matchLength >= 15)
@@ -305,11 +287,11 @@ private:
         // emit 255 until remainder is below 255
         while (matchLength >= MaxLengthCode)
         {
-          result.push_back(MaxLengthCode);
+          result.emplace_back(MaxLengthCode);
           matchLength -= MaxLengthCode;
         }
         // and the last byte (can be zero, too)
-        result.push_back((unsigned char)matchLength);
+        result.emplace_back((unsigned char)matchLength);
       }
     }
 
@@ -416,10 +398,52 @@ private:
       //       which could be more cache-friendly (=> faster decoding)
     }
   }
+   
+   static inline void dump(const std::span<const unsigned char> str, std::string& b, size_t& ix) noexcept
+   {
+      const auto n = str.size();
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+      
+      std::memcpy(b.data() + ix, str.data(), n);
+      ix += n;
+   }
+   
+   static inline void dump(const unsigned char c, std::string& b, size_t& ix) noexcept
+   {
+      if (ix == b.size()) [[unlikely]] {
+         b.resize(b.size() == 0 ? 128 : b.size() * 2);
+      }
 
+      b[ix] = c;
+      ++ix;
+   }
+   
+   static inline void dump(const std::span<const std::byte> bytes, std::string& b, size_t& ix) noexcept
+   {
+      const auto n = bytes.size();
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+
+      std::memcpy(b.data() + ix, bytes.data(), n);
+      ix += n;
+   }
+   
+   static inline void dump_type(auto&& value, std::string& b, size_t& ix) noexcept
+   {
+      constexpr auto n = sizeof(std::decay_t<decltype(value)>);
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+
+      std::memcpy(b.data() + ix, &value, n);
+      ix += n;
+   }
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
-  void compress(GET_BYTES getBytes, SEND_BYTES sendBytes, const std::vector<unsigned char>& dictionary, void* userPtr) const
+  void compress(const char*& it, const char* end, std::string& b, size_t& ix, const std::vector<unsigned char>& dictionary, void* userPtr) const
   {
     // ==================== write header ====================
      // frame header
@@ -430,7 +454,7 @@ private:
        MaxBlockSizeId << 4,    // max blocksize
        0xDF                    // header checksum (precomputed)
      };
-     sendBytes(header, sizeof(header), userPtr);
+     dump({header, sizeof(header)}, b, ix);
 
     // ==================== declarations ====================
     // change read buffer size as you like
@@ -448,11 +472,11 @@ private:
     const bool uncompressed = (maxChainLength == 0);
 
     // last time we saw a hash
-    const uint64_t NoLastHash = ~0; // = -1
+    constexpr uint64_t NoLastHash = ~0; // = -1
     std::vector<uint64_t> lastHash(HashSize, NoLastHash);
 
     // previous position which starts with the same bytes
-    std::vector<Distance> previousHash (MaxDistance + 1, Distance(EndOfChain)); // long chains based on my simple hash
+    std::vector<Distance> previousHash(MaxDistance + 1, Distance(EndOfChain)); // long chains based on my simple hash
     std::vector<Distance> previousExact(MaxDistance + 1, Distance(EndOfChain)); // shorter chains based on exact matching of the first four bytes
     // these two containers are essential for match finding:
     // 1. I compute a hash of four byte
@@ -511,14 +535,16 @@ private:
       while (numRead - nextBlock < maxBlockSize)
       {
         // buffer can be significantly smaller than MaxBlockSize, that's the only reason for this while-block
-        size_t incoming = getBytes(buffer, BufferSize, userPtr);
-        // no more data ?
-        if (incoming == 0)
-          break;
+         size_t incoming = size_t(end - it);
+         if (incoming == 0)
+           break;
+         if (BufferSize < incoming) {
+            incoming = BufferSize;
+         }
 
-        // add bytes to buffer
-        numRead += incoming;
-        data.insert(data.end(), buffer, buffer + incoming);
+        data.insert(data.end(), it, it + incoming); // TODO: use a span
+         numRead += incoming;
+         it += incoming;
       }
 
       // no more data ? => WE'RE DONE !
@@ -703,15 +729,15 @@ private:
       // block size
       uint32_t numBytes = uint32_t(useCompression ? compressed.size() : blockSize);
       uint32_t numBytesTagged = numBytes | (useCompression ? 0 : 0x80000000);
-      unsigned char num1 =  numBytesTagged         & 0xFF; sendBytes(&num1, 1, userPtr);
-      unsigned char num2 = (numBytesTagged >>  8)  & 0xFF; sendBytes(&num2, 1, userPtr);
-      unsigned char num3 = (numBytesTagged >> 16)  & 0xFF; sendBytes(&num3, 1, userPtr);
-      unsigned char num4 = (numBytesTagged >> 24)  & 0xFF; sendBytes(&num4, 1, userPtr);
+       unsigned char num1 =  numBytesTagged         & 0xFF; dump(num1, b, ix);
+       unsigned char num2 = (numBytesTagged >>  8)  & 0xFF; dump(num2, b, ix);
+       unsigned char num3 = (numBytesTagged >> 16)  & 0xFF; dump(num3, b, ix);
+       unsigned char num4 = (numBytesTagged >> 24)  & 0xFF; dump(num4, b, ix);
 
       if (useCompression)
-        sendBytes(compressed.data(),           numBytes, userPtr);
+         dump({compressed.data(), numBytes}, b, ix);
       else // uncompressed ? => copy input data
-        sendBytes(&data[lastBlock - dataZero], numBytes, userPtr);
+         dump({&data[lastBlock - dataZero], numBytes}, b, ix);
 
        // remove already processed data except for the last 64kb which could be used for intra-block matches
        if (data.size() > MaxDistance)
@@ -722,7 +748,7 @@ private:
        }
     }
 
-     static const uint32_t zero = 0;
-     sendBytes(&zero, 4, userPtr);
+     constexpr uint32_t zero = 0;
+     dump_type(zero, b, ix);
   }
 };

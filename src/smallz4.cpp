@@ -270,14 +270,64 @@ void command_line_interface(int argc, const char* argv[])
              user.numBytesIn, user.numBytesOut, 100 * user.numBytesOut / user.numBytesIn, int(time(NULL) - user.starttime));
 }*/
 
-#include <string>
+#include <iostream>
+
+#include <lz4.h>
+
+void decompress_lz4(const std::string& compressedText)
+{
+   // Decompress the string
+   std::string decompressedText(compressedText.size() * 10, '\0'); // Allocate space for decompressed data
+
+   int decompressedSize = LZ4_decompress_safe(compressedText.c_str(), &decompressedText[0], int(compressedText.size()), int(decompressedText.size()));
+
+   if (decompressedSize < 0) {
+       std::cerr << "Decompression failed." << std::endl;
+   }
+   else {
+      // Resize the decompressed string to the actual size
+      decompressedText.resize(decompressedSize);
+   }
+}
+
+void test_lz4(const std::string& originalText) {
+   std::cout << "Original: " << originalText.size() << std::endl;
+    // Compress the string
+    const char* input = originalText.c_str();
+    const int inputSize = static_cast<int>(originalText.size());
+    int maxCompressedSize = LZ4_compressBound(inputSize); // Calculate maximum compressed size
+    std::string compressedText(maxCompressedSize, '\0'); // Allocate space for compressed data
+
+    int compressedSize = LZ4_compress_default(input, &compressedText[0], inputSize, maxCompressedSize);
+
+    if (compressedSize <= 0) {
+        std::cerr << "Compression failed." << std::endl;
+    }
+
+    // Resize the compressed string to the actual size
+    compressedText.resize(compressedSize);
+   
+   std::cout << "Compressed: " << compressedText.size() << std::endl;
+
+   decompress_lz4(compressedText);
+}
 
 int main(int argc, const char* argv[])
 {
-   std::string text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+   std::string text = "LZ4 text compression, an efficient algorithm developed by Yann Collet in 2011, stands out for its remarkable speed and compression ratios, making it a preferred choice for numerous applications. By leveraging a combination of fast parsing and a powerful dictionary-based approach, LZ4 excels in compressing text data with minimal computational overhead, achieving impressive compression ratios while maintaining rapid decompression speeds. Its popularity stems from its seamless integration into various systems and its ability to handle real-time data processing requirements with ease. From reducing storage overhead in databases to accelerating data transmission over networks, LZ4's effectiveness in compressing text data has made it a cornerstone technology in the realm of data compression, offering both efficiency and speed without compromising on performance.";
    
-   //smallz4 obj(maxChainLength);
-   //obj.compress(getBytes, sendBytes, dictionary, userPtr);
+   test_lz4(text);
+   
+   std::string compressed{};
+   size_t ix{};
+   
+   const char* it = text.data();
+   const char* end = it + text.size();
+   smallz4::lz4(it, end, compressed, ix);
+   compressed.resize(ix);
+   
+   std::cout << text.size() << ", " << compressed.size() << '\n';
+   //std::cout << out << '\n';
 
   return 0;
 }
