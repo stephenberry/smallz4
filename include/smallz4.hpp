@@ -76,7 +76,6 @@ struct smallz4
    static constexpr int BlockEndLiterals = 5; // last 5 bytes must be literals, no matching allowed
    static constexpr int HashBits = 20; // match finder's hash table size (2^HashBits entries, must be less than 32)
    static constexpr int HashSize = 1 << HashBits;
-   static constexpr int BufferSize = 64 * 1024; // input buffer size, can be any number but zero ;-)
    static constexpr uint32_t MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
    static constexpr int EndOfChain = 0; // marker for "no match"
    static constexpr uint16_t MaxChainLength =
@@ -101,13 +100,10 @@ struct smallz4
    /// compression ratio
    uint16_t maxChainLength{};
 
-   /// match
    struct Match
    {
-      /// length of match
-      Length length;
-      /// start of match
-      Distance distance;
+      Length length; // length of match
+      Distance distance; // start of match
    };
 
    /// create new compressor (only invoked by lz4)
@@ -149,7 +145,9 @@ struct smallz4
       while (distance != EndOfChain) {
          // chain goes too far back ?
          totalDistance += distance;
-         if (totalDistance > MaxDistance) break; // can't match beyond 64k
+         if (totalDistance > MaxDistance) {
+            break; // can't match beyond 64k
+         }
 
          // prepare next position
          distance = chain[(pos - totalDistance) & MaxDistance];
@@ -157,7 +155,9 @@ struct smallz4
          // let's introduce a new pointer atLeast that points to the first "new" byte of a potential longer match
          const unsigned char* const atLeast = current + result.length + 1;
          // impossible to find a longer match because not enough bytes left ?
-         if (atLeast > stop) break;
+         if (atLeast > stop) {
+            break;
+         }
 
          // the idea is to split the comparison algorithm into 2 phases
          // (1) scan backward from atLeast to current, abort if mismatch
@@ -172,17 +172,21 @@ struct smallz4
          // => checking the last first increases the probability that a mismatch is detected as early as possible
 
          // compare 4 bytes at once
-         const Length CheckAtOnce = 4;
+         constexpr Length CheckAtOnce = 4;
 
          // all bytes between current and atLeast shall be identical
          const unsigned char* phase1 = atLeast - CheckAtOnce; // minus 4 because match4 checks 4 bytes
-         while (phase1 > current && match4(phase1, phase1 - totalDistance)) phase1 -= CheckAtOnce;
+         while (phase1 > current && match4(phase1, phase1 - totalDistance)) {
+            phase1 -= CheckAtOnce;
+         }
          // note: - the first four bytes always match
          //       - in the last iteration, phase1 points either at current + 1 or current + 2 or current + 3
          //       - therefore we compare a few bytes twice => but a check to skip these checks is more expensive
 
          // mismatch ? (the while-loop was aborted)
-         if (phase1 > current) continue;
+         if (phase1 > current) {
+            continue;
+         }
 
          // we have a new best match, now scan forward
          const unsigned char* phase2 = atLeast;
@@ -201,7 +205,9 @@ struct smallz4
          result.length = Length(phase2 - current);
 
          // stop searching on lower compression levels
-         if (--stepsLeft == 0) break;
+         if (--stepsLeft == 0) {
+            break;
+         }
       }
 
       return result;
@@ -425,9 +431,6 @@ struct smallz4
       dump({header, sizeof(header)}, b, ix);
 
       // ==================== declarations ====================
-      // change read buffer size as you like
-      unsigned char buffer[BufferSize];
-
       // read the file in chunks/blocks, data will contain only bytes which are relevant for the current block
       std::span<const unsigned char> data;
 
@@ -497,15 +500,8 @@ struct smallz4
          }
 
          // read more bytes from input
-         size_t maxBlockSize = MaxBlockSize;
-         while (numRead - nextBlock < maxBlockSize) {
-            // buffer can be significantly smaller than MaxBlockSize, that's the only reason for this while-block
-            size_t incoming = size_t(end - it);
-            if (incoming == 0) break;
-            if (BufferSize < incoming) {
-               incoming = BufferSize;
-            }
-
+         if (const size_t incoming = size_t(end - it); incoming)
+         {
             if (data.empty()) {
                data = {it, incoming};
             }
@@ -519,12 +515,15 @@ struct smallz4
          if (nextBlock == numRead) {
             break; // finished reading
          }
-
+         
+         constexpr size_t maxBlockSize = MaxBlockSize;
          // determine block borders
          lastBlock = nextBlock;
          nextBlock += maxBlockSize;
          // not beyond end-of-file
-         if (nextBlock > numRead) nextBlock = numRead;
+         if (nextBlock > numRead) {
+            nextBlock = numRead;
+         }
 
          // pointer to first byte of the currently processed block (the std::vector container named data may contain the
          // last 64k of the previous block, too)
@@ -547,15 +546,19 @@ struct smallz4
          // the last literals of the previous block skipped matching, so they are missing from the hash chains
          int64_t lookback = int64_t(dataZero);
          if (lookback > BlockEndNoMatch && !parseDictionary) lookback = BlockEndNoMatch;
-         if (parseDictionary) lookback = int64_t(dictionary.size());
+         if (parseDictionary) {
+            lookback = int64_t(dictionary.size());
+         }
          // so let's go back a few bytes
          lookback = -lookback;
-         if (uncompressed) lookback = 0;
+         if (uncompressed) {
+            lookback = 0;
+         }
 
          std::vector<Match> matches(uncompressed ? 0 : blockSize);
          // find longest matches for each position (skip if level=0 which means "uncompressed")
          int64_t i;
-         for (i = lookback; i + BlockEndNoMatch <= int64_t(blockSize) && !uncompressed; i++) {
+         for (i = lookback; i + BlockEndNoMatch <= int64_t(blockSize) && !uncompressed; ++i) {
             // detect self-matching
             if (i > 0 && dataBlock[i] == dataBlock[i - 1]) {
                Match prevMatch = matches[i - 1];
@@ -570,15 +573,12 @@ struct smallz4
                }
             }
 
-            // read next four bytes
-            const uint32_t four = *(uint32_t*)(dataBlock + i);
-            // convert to a shorter hash
-            const uint32_t hash = getHash32(four);
-
-            // get most recent position of this hash
-            uint64_t lastHashMatch = lastHash[hash];
-            // and store current position
-            lastHash[hash] = i + lastBlock;
+            
+            const uint32_t four = *(uint32_t*)(dataBlock + i); // read next four bytes
+            const uint32_t hash = getHash32(four); // convert to a shorter hash
+            
+            uint64_t lastHashMatch = lastHash[hash]; // get most recent position of this hash
+            lastHash[hash] = i + lastBlock; // and store current position
 
             // remember: i could be negative, too
             Distance prevIndex = (i + MaxDistance + 1) & MaxDistance; // actually the same as i & MaxDistance
@@ -599,7 +599,7 @@ struct smallz4
             }
 
             // build hash chain, i.e. store distance to last pseudo-match
-            previousHash[prevIndex] = (Distance)distance;
+            previousHash[prevIndex] = Distance(distance);
 
             // skip pseudo-matches (hash collisions) and build a second chain where the first four bytes must match
             // exactly
@@ -618,16 +618,22 @@ struct smallz4
                // try next pseudo-match
                Distance next = previousHash[lastHashMatch & MaxDistance];
                // end of the hash chain ?
-               if (next == EndOfChain) break;
+               if (next == EndOfChain) {
+                  break;
+               }
 
                // too far away ?
                distance += next;
-               if (distance > MaxDistance) break;
+               if (distance > MaxDistance) {
+                  break;
+               }
 
                // take another step along the hash chain ...
                lastHashMatch -= next;
                // closest match is out of range ?
-               if (lastHashMatch < dataZero) break;
+               if (lastHashMatch < dataZero) {
+                  break;
+               }
             }
 
             // search aborted / failed ?
@@ -641,7 +647,9 @@ struct smallz4
             previousExact[prevIndex] = (Distance)distance;
 
             // no matching if crossing block boundary, just update hash tables
-            if (i < 0) continue;
+            if (i < 0) {
+               continue;
+            }
 
             // skip match finding if in greedy mode
             if (skipMatches > 0) {
