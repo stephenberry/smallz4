@@ -65,8 +65,8 @@ struct smallz4
    }
 
   private:
-   /// a block can be up to 4 MB, so uint32_t would suffice but uint64_t is quite a bit faster on my x64 machine
-   using Length = uint64_t;
+   /// a block can be up to 4 MB
+   using Length = uint32_t;
    /// matches must start within the most recent 64k
    using Distance = uint16_t;
 
@@ -218,6 +218,7 @@ struct smallz4
    static void selectBestMatches(const std::vector<Match>& matches,
                                                        const unsigned char* const data, std::vector<unsigned char>& result)
    {
+      const auto n_matches = matches.size();
       result.clear();
       result.reserve(matches.size());
 
@@ -228,7 +229,6 @@ struct smallz4
       bool lastToken = false;
 
       // walk through the whole block
-      const auto n_matches = matches.size();
       for (size_t offset = 0; offset < n_matches;) // increment inside of loop
       {
          const Match match = matches[offset]; // get best cost-weighted match
@@ -287,10 +287,11 @@ struct smallz4
             result.insert(result.end(), data + literalsFrom, data + literalsFrom + numLiterals);
 
             // last token doesn't have a match
-            if (lastToken) break;
-
-            // reset
-            numLiterals = 0;
+            if (lastToken) {
+               break;
+            }
+            
+            numLiterals = 0; // reset
          }
 
          // distance stored in 16 bits / little endian
