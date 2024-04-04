@@ -76,7 +76,7 @@ struct smallz4
    static constexpr int BlockEndLiterals = 5; // last 5 bytes must be literals, no matching allowed
    static constexpr int HashBits = 20; // match finder's hash table size (2^HashBits entries, must be less than 32)
    static constexpr int HashSize = 1 << HashBits;
-   static constexpr uint32_t MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
+   static constexpr uint16_t MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
    static constexpr int EndOfChain = 0; // marker for "no match"
    static constexpr uint16_t MaxChainLength =
       MaxDistance; // stop match finding after MaxChainLength steps (default is MaxDistance => optimal parsing)
@@ -116,7 +116,7 @@ struct smallz4
    }
 
    /// simple hash function, input: 32 bits, output: HashBits bits (by default: 20)
-   inline static constexpr uint32_t getHash32(uint32_t fourBytes)
+   inline static constexpr uint32_t getHash32(const uint32_t fourBytes)
    {
       // taken from https://en.wikipedia.org/wiki/Linear_congruential_generator
       constexpr uint32_t HashMultiplier = 48271;
