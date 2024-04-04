@@ -140,8 +140,6 @@ void command_line_interface(int argc, const char* argv[])
 
    // overwrite output ?
    bool overwrite = false;
-   // legacy format ? (not recommended, but smaller files if input < 8 MB)
-   bool useLegacy = false;
    // preload dictionary from disk
    const char* dictionary = NULL;
 
@@ -173,12 +171,7 @@ void command_line_interface(int argc, const char* argv[])
        case 'f':
          overwrite = true;
          break;
-
-         // old LZ4 format
-       case 'l':
-         useLegacy = true;
-         break;
-
+             
          // use dictionary
        case 'D':
          if (nextArgument + 1 >= argc)
@@ -233,15 +226,6 @@ void command_line_interface(int argc, const char* argv[])
        error("cannot create file");
    }
 
-   // basic check of legacy format's restrictions
-   if (useLegacy)
-   {
-     if (dictionary != 0)
-       error("legacy format doesn't support dictionaries");
-     if (maxChainLength == 0)
-       error("legacy format doesn't support uncompressed files");
-   }
-
    // load dictionary
    std::vector<unsigned char> preload;
    if (dictionary != NULL)
@@ -280,7 +264,7 @@ void command_line_interface(int argc, const char* argv[])
    }
 
    // and go !
-   smallz4::lz4(getBytesFromIn, sendBytesToOut, maxChainLength, preload, useLegacy, &user);
+   smallz4::lz4(getBytesFromIn, sendBytesToOut, maxChainLength, preload, &user);
 
    if (user.verbose && user.numBytesIn > 0)
      fprintf(stderr, "\r%lld bytes => %lld bytes (%d%%) after %d seconds                                                                      \n",

@@ -25,21 +25,19 @@ struct smallz4
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
   static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
                   unsigned short maxChainLength = MaxChainLength,
-                  bool useLegacyFormat = false,
                   void* userPtr = NULL)
   {
-    lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>(), useLegacyFormat, userPtr);
+    lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>(), userPtr);
   }
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
   static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
                   unsigned short maxChainLength,
                   const std::vector<unsigned char>& dictionary, // predefined dictionary
-                  bool useLegacyFormat = false,                 // old format is 7 bytes smaller if input < 8 MB
                   void* userPtr = NULL)
   {
     smallz4 obj(maxChainLength);
-    obj.compress(getBytes, sendBytes, dictionary, useLegacyFormat, userPtr);
+    obj.compress(getBytes, sendBytes, dictionary, userPtr);
   }
 
   /// version string
@@ -428,27 +426,18 @@ private:
 
 
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
-  void compress(GET_BYTES getBytes, SEND_BYTES sendBytes, const std::vector<unsigned char>& dictionary, bool useLegacyFormat, void* userPtr) const
+  void compress(GET_BYTES getBytes, SEND_BYTES sendBytes, const std::vector<unsigned char>& dictionary, void* userPtr) const
   {
     // ==================== write header ====================
-    if (useLegacyFormat)
-    {
-      // magic bytes
-      const unsigned char header[] = { 0x02, 0x21, 0x4C, 0x18 };
-      sendBytes(header, sizeof(header), userPtr);
-    }
-    else
-    {
-      // frame header
-      const unsigned char header[] =
-      {
-        0x04, 0x22, 0x4D, 0x18, // magic bytes
-        1 << 6,                 // flags: no checksums, blocks depend on each other and no dictionary ID
-        MaxBlockSizeId << 4,    // max blocksize
-        0xDF                    // header checksum (precomputed)
-      };
-      sendBytes(header, sizeof(header), userPtr);
-    }
+     // frame header
+     const unsigned char header[] =
+     {
+       0x04, 0x22, 0x4D, 0x18, // magic bytes
+       1 << 6,                 // flags: no checksums, blocks depend on each other and no dictionary ID
+       MaxBlockSizeId << 4,    // max blocksize
+       0xDF                    // header checksum (precomputed)
+     };
+     sendBytes(header, sizeof(header), userPtr);
 
     // ==================== declarations ====================
     // change read buffer size as you like
@@ -525,7 +514,7 @@ private:
       }
 
       // read more bytes from input
-      size_t maxBlockSize = useLegacyFormat ? MaxBlockSizeLegacy : MaxBlockSize;
+      size_t maxBlockSize = MaxBlockSize;
       while (numRead - nextBlock < maxBlockSize)
       {
         // buffer can be significantly smaller than MaxBlockSize, that's the only reason for this while-block
@@ -574,8 +563,7 @@ private:
         lookback = int64_t(dictionary.size());
       // so let's go back a few bytes
       lookback = -lookback;
-      // ... but not in legacy mode
-      if (useLegacyFormat || uncompressed)
+      if (uncompressed)
         lookback = 0;
 
       std::vector<Match> matches(uncompressed ? 0 : blockSize);
@@ -718,8 +706,6 @@ private:
 
       // did compression do harm ?
       bool useCompression = compressed.size() < blockSize && !uncompressed;
-      // legacy format is always compressed
-      useCompression |= useLegacyFormat;
 
       // block size
       uint32_t numBytes = uint32_t(useCompression ? compressed.size() : blockSize);
@@ -734,37 +720,16 @@ private:
       else // uncompressed ? => copy input data
         sendBytes(&data[lastBlock - dataZero], numBytes, userPtr);
 
-      // legacy format: no matching across blocks
-      if (useLegacyFormat)
-      {
-        dataZero += data.size();
-        data.clear();
-
-        // clear hash tables
-        for (size_t i = 0; i < previousHash .size(); i++)
-          previousHash [i] = EndOfChain;
-        for (size_t i = 0; i < previousExact.size(); i++)
-          previousExact[i] = EndOfChain;
-        for (size_t i = 0; i < lastHash.size(); i++)
-          lastHash[i] = NoLastHash;
-      }
-      else
-      {
-        // remove already processed data except for the last 64kb which could be used for intra-block matches
-        if (data.size() > MaxDistance)
-        {
-          size_t remove = data.size() - MaxDistance;
-          dataZero += remove;
-          data.erase(data.begin(), data.begin() + remove);
-        }
-      }
+       // remove already processed data except for the last 64kb which could be used for intra-block matches
+       if (data.size() > MaxDistance)
+       {
+         size_t remove = data.size() - MaxDistance;
+         dataZero += remove;
+         data.erase(data.begin(), data.begin() + remove);
+       }
     }
 
-    // add an empty block
-    if (!useLegacyFormat)
-    {
-      static const uint32_t zero = 0;
-      sendBytes(&zero, 4, userPtr);
-    }
+     static const uint32_t zero = 0;
+     sendBytes(&zero, 4, userPtr);
   }
 };
