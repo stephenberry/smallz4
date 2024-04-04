@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 /// LZ4 compression with optimal parsing
@@ -25,7 +26,7 @@ struct smallz4
   /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
   static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
                   unsigned short maxChainLength = MaxChainLength,
-                  void* userPtr = NULL)
+                  void* userPtr = nullptr)
   {
     lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>(), userPtr);
   }
@@ -34,7 +35,7 @@ struct smallz4
   static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
                   unsigned short maxChainLength,
                   const std::vector<unsigned char>& dictionary, // predefined dictionary
-                  void* userPtr = NULL)
+                  void* userPtr = nullptr)
   {
     smallz4 obj(maxChainLength);
     obj.compress(getBytes, sendBytes, dictionary, userPtr);
@@ -80,7 +81,6 @@ private:
    static constexpr int MaxBlockSizeId = 7;
    static constexpr int MaxBlockSize = 4*1024*1024;
 
-   static constexpr int MaxBlockSizeLegacy = 8*1024*1024; // legacy format has a fixed block size of 8 MB
    static constexpr int MaxLengthCode = 255; // number of literals and match length is encoded in several bytes, max. 255 per byte
 
   //  ----- one and only variable ... -----
@@ -492,7 +492,7 @@ private:
     {
       // ==================== start new block ====================
       // first byte of the currently processed block (std::vector data may contain the last 64k of the previous block, too)
-      const unsigned char* dataBlock = NULL;
+      const unsigned char* dataBlock = nullptr;
 
       // prepend dictionary
       if (parseDictionary)

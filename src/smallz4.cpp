@@ -3,10 +3,9 @@
 #include <cstdio>     // stdin/stdout/stderr, fopen, ...
 #include <ctime>      // time (verbose output)
 #include <cstdlib>  // exit
-#include <unistd.h> // isatty()
 
 /// error handler
-static void error(const char* msg, int code = 1)
+/*static void error(const char* msg, int code = 1)
 {
   fprintf(stderr, "ERROR: %s\n", msg);
   exit(code);
@@ -269,13 +268,16 @@ void command_line_interface(int argc, const char* argv[])
    if (user.verbose && user.numBytesIn > 0)
      fprintf(stderr, "\r%lld bytes => %lld bytes (%d%%) after %d seconds                                                                      \n",
              user.numBytesIn, user.numBytesOut, 100 * user.numBytesOut / user.numBytesIn, int(time(NULL) - user.starttime));
-}
+}*/
 
+#include <string>
 
-/// parse command-line
 int main(int argc, const char* argv[])
 {
-   command_line_interface(argc, argv);
+   std::string text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+   
+   //smallz4 obj(maxChainLength);
+   //obj.compress(getBytes, sendBytes, dictionary, userPtr);
 
   return 0;
 }
