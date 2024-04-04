@@ -351,7 +351,7 @@ int main(int argc, const char* argv[])
       "technology in the realm of data compression, offering both efficiency and speed without compromising on "
       "performance.";
 
-   std::uniform_int_distribution<uint8_t> dist{40, 45};
+   std::uniform_int_distribution<uint8_t> dist{40, 50};
    std::mt19937_64 generator{};
    for (size_t i = 0; i < 5'000'000; ++i) {
       text.push_back(dist(generator));
