@@ -286,8 +286,14 @@ void test_lz4(const std::string& originalText)
    int compressedSize = LZ4_compress_default(input, &compressedText[0], inputSize, maxCompressedSize);
    auto t1 = std::chrono::steady_clock::now();
 
+   const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6;
    std::cout << "lz4 compression time: "
-             << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
+             << duration << '\n';
+   
+   std::cout << "lz4 compression time: "
+             << duration << '\n';
+   auto mbytes_per_sec = originalText.size() / (duration * 1048576);
+   std::cout << "original speed: " << mbytes_per_sec << " MB/s\n";
 
    if (compressedSize <= 0) {
       std::cerr << "Compression failed." << '\n';

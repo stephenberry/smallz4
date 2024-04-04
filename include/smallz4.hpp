@@ -408,9 +408,10 @@ struct smallz4
 
          // and adjust best match
          matches.lengths[i] = bestLength;
-
-         // reset number of literals if a match was chosen
-         if (bestLength != JustLiteral) numLiterals = 0;
+         
+         if (bestLength != JustLiteral) {
+            numLiterals = 0; // reset number of literals if a match was chosen
+         }
 
          // note: if bestLength is smaller than the previous matches[i].length then there might be a closer match
          //       which could be more cache-friendly (=> faster decoding)
