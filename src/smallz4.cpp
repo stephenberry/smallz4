@@ -553,7 +553,6 @@ void decompress_lz4(const std::string& compressedText)
 }
 
 void test_lz4(const std::string& originalText) {
-   std::cout << "Original: " << originalText.size() << '\n';
     const char* input = originalText.c_str();
     const int inputSize = static_cast<int>(originalText.size());
     int maxCompressedSize = LZ4_compressBound(inputSize); // Calculate maximum compressed size
@@ -571,7 +570,7 @@ void test_lz4(const std::string& originalText) {
 
     compressedText.resize(compressedSize);
    
-   std::cout << "Compressed: " << compressedText.size() << '\n';
+   std::cout << "lz4: " << originalText.size() << ", " << compressedText.size() << '\n';
 
    decompress_lz4(compressedText);
 }
@@ -629,11 +628,14 @@ int main(int argc, const char* argv[])
    
    {
       original_in = text;
+      auto t0 = std::chrono::steady_clock::now();
       smallz4_original::lz4(getBytesOriginal, sendBytesOriginal);
+      auto t1 = std::chrono::steady_clock::now();
       
-      //std::cout << original_out << '\n';
+      std::cout << "original compression time: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
       
       std::cout << "original: " << original_in.size() << ", " << original_out.size() << '\n';
+      std::cout << '\n';
    }
    
    std::string compressed{};
@@ -652,6 +654,7 @@ int main(int argc, const char* argv[])
    std::cout << "refactored: " << text.size() << ", " << compressed.size() << '\n';
    //std::cout << compressed << '\n';
    
+   std::cout << '\n';
    if (original_out == compressed) {
       std::cout << "refactored matches original!\n";
    }
