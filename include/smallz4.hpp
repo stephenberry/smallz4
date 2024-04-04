@@ -629,7 +629,7 @@ struct smallz4
                }
                
                // try next pseudo-match
-               Distance next = previousHash[lastHashMatch & MaxDistance];
+               const Distance next = previousHash[lastHashMatch & MaxDistance];
                // end of the hash chain ?
                if (next == EndOfChain) {
                   break;
@@ -674,13 +674,14 @@ struct smallz4
             }
             
             // and after all that preparation ... finally look for the longest match
+            auto& length = matches.lengths[i];
             findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
-                                          previousExact.data(), matches.lengths[i], matches.distances[i]);
+                                          previousExact.data(), length, matches.distances[i]);
             
             // no match finding needed for the next few bytes in greedy/lazy mode
-            if ((isLazy || isGreedy) && matches.lengths[i] != JustLiteral) {
+            if ((isLazy || isGreedy) && length != JustLiteral) {
                lazyEvaluation = (skipMatches == 0);
-               skipMatches = matches.lengths[i];
+               skipMatches = length;
             }
          }
          // last bytes are always literals
