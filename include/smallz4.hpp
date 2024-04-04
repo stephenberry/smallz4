@@ -9,13 +9,6 @@
 #include <vector>
 
 /// LZ4 compression with optimal parsing
-/** see smallz4.cpp for a basic I/O interface
-    you can easily replace it by a in-memory version
-    then all you have to do is:
-    #include "smallz4.h"
-    smallz4::lz4(GET_BYTES, SEND_BYTES);
-    // for more advanced stuff, you can call lz4 with up to four parameters (incl. max chain length and a dictionary)
-**/
 struct smallz4
 {
   // read  several bytes, see getBytesFromIn() in smallz4.cpp for a basic implementation
