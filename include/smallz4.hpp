@@ -130,11 +130,10 @@ struct smallz4
    }
 
    /// find longest match of data[pos] between data[begin] and data[end], use match chain
-   Match findLongestMatch(const unsigned char* const data, uint64_t pos, uint64_t begin, uint64_t end,
-                          const Distance* const chain) const
+   void findLongestMatch(const unsigned char* const data, uint64_t pos, uint64_t begin, uint64_t end,
+                          const Distance* const chain, Length& result_length, Distance& result_distance) const
    {
-      Match result;
-      result.length = JustLiteral; // assume a literal => one byte
+      result_length = JustLiteral; // assume a literal => one byte
 
       // compression level: look only at the first n entries of the match chain
       uint16_t stepsLeft = maxChainLength;
@@ -159,7 +158,7 @@ struct smallz4
          distance = chain[(pos - totalDistance) & MaxDistance];
 
          // let's introduce a new pointer atLeast that points to the first "new" byte of a potential longer match
-         const unsigned char* const atLeast = current + result.length + 1;
+         const unsigned char* const atLeast = current + result_length + 1;
          // impossible to find a longer match because not enough bytes left ?
          if (atLeast > stop) {
             break;
@@ -206,15 +205,15 @@ struct smallz4
             ++phase2;
          }
          
-         result = {Length(phase2 - current), Distance(totalDistance)}; // store new best match
+         // store new best match
+         result_length = Length(phase2 - current);
+         result_distance = Distance(totalDistance);
 
          // stop searching on lower compression levels
          if (--stepsLeft == 0) {
             break;
          }
       }
-
-      return result;
    }
 
    /// create shortest output
@@ -622,8 +621,7 @@ struct smallz4
             // check the hash chain
             while (true) {
                // read four bytes
-               currentFour =
-               *(uint32_t*)(&data[lastHashMatch - dataZero]); // match may be found in the previous block, too
+               std::memcpy(&currentFour, &data[lastHashMatch - dataZero], 4); // match may be found in the previous block, too
                // match chain found, first 4 bytes are identical
                if (currentFour == four) {
                   break;
@@ -680,10 +678,8 @@ struct smallz4
             }
             
             // and after all that preparation ... finally look for the longest match
-            const auto match = findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
-                                          previousExact.data());
-            matches.lengths[i] = match.length;
-            matches.distances[i] = match.distance;
+            findLongestMatch(data.data(), i + lastBlock, dataZero, nextBlock - BlockEndLiterals,
+                                          previousExact.data(), matches.lengths[i], matches.distances[i]);
             
             // no match finding needed for the next few bytes in greedy/lazy mode
             if ((isLazy || isGreedy) && matches.lengths[i] != JustLiteral) {
@@ -715,7 +711,7 @@ struct smallz4
          // ==================== output ====================
 
          // did compression do harm ?
-         bool useCompression = compressed.size() < blockSize && !uncompressed;
+         const bool useCompression = compressed.size() < blockSize && !uncompressed;
 
          // block size
          uint32_t numBytes = uint32_t(useCompression ? compressed.size() : blockSize);
@@ -729,14 +725,17 @@ struct smallz4
          unsigned char num4 = (numBytesTagged >> 24) & 0xFF;
          dump(num4, b, ix);
 
-         if (useCompression)
+         if (useCompression) {
             dump({compressed.data(), numBytes}, b, ix);
-         else // uncompressed ? => copy input data
+         }
+         else {
+            // uncompressed ? => copy input data
             dump({&data[lastBlock - dataZero], numBytes}, b, ix);
+         }
 
          // remove already processed data except for the last 64kb which could be used for intra-block matches
          if (data.size() > MaxDistance) {
-            size_t remove = data.size() - MaxDistance;
+            const size_t remove = data.size() - MaxDistance;
             dataZero += remove;
             data = data.subspan(remove);
          }
