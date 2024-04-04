@@ -252,82 +252,7 @@ void unlz4(const unsigned char*& it, const unsigned char* end, std::string& b, s
    smallz4::dump({history, pos}, b, ix);
 }
 
-/// error handler
-/*static void error(const char* msg, int code = 1)
-{
-  fprintf(stderr, "ERROR: %s\n", msg);
-  exit(code);
-}
-
-
-// ==================== user-specific I/O INTERFACE ====================
-
-struct UserPtr
-{
-  // file handles
-  FILE* in;
-  FILE* out;
-  // the attributes below are just needed for verbose output
-  bool  verbose;
-  uint64_t numBytesIn;
-  uint64_t numBytesOut;
-  uint64_t totalSize;
-  time_t   starttime;
-};
-
-/// read several bytes and store at "data", return number of actually read bytes (return only zero if end of data
-reached) size_t getBytesFromIn(void* data, size_t numBytes, void* userPtr)
-{
-  /// cast user-specific data
-  UserPtr* user = (UserPtr*)userPtr;
-
-  if (data && numBytes > 0)
-  {
-    size_t actual = fread(data, 1, numBytes, user->in);
-    user->numBytesIn += actual;
-
-    return actual;
-  }
-  return 0;
-}
-
-/// show verbose info on STDERR
-void verbose(const UserPtr& user)
-{
-  if (!user.verbose)
-    return;
-  if (user.numBytesIn == 0)
-    return;
-
-  // elapsed and estimated time in seconds
-  int duration  = int(time(NULL) - user.starttime);
-  if (duration == 0)
-    return;
-  int estimated = int(duration * user.totalSize / user.numBytesIn);
-
-  // display on STDERR
-  fprintf(stderr, "\r%lld bytes => %lld bytes (%d%%", user.numBytesIn, user.numBytesOut, 100 * user.numBytesOut /
-user.numBytesIn); if (estimated > 0) fprintf(stderr, ", %d%% done", 100 * duration / estimated); fprintf(stderr, "),
-after %d seconds @ %d kByte/s", duration, duration > 0 ? (user.numBytesIn / duration) / 1024 : 0); if (estimated > 0)
-    fprintf(stderr, ", about %d seconds left  ", estimated - duration);
-}
-
-/// write a block of bytes
-void sendBytesToOut(const void* data, size_t numBytes, void* userPtr)
-{
-  /// cast user-specific data
-  UserPtr* user = (UserPtr*)userPtr;
-  if (data && numBytes > 0)
-  {
-    fwrite(data, 1, numBytes, user->out);
-    user->numBytesOut += numBytes;
-
-    if (user->verbose)
-      verbose(*user);
-  }
-}
-
-
+/*
 // ==================== COMMAND-LINE HANDLING ====================
 
 
@@ -375,29 +300,6 @@ https://lz4.org)\n"
 
 void command_line_interface(int argc, const char* argv[])
 {
-   // show help if no parameters
-   if (argc == 1)
-   {
-     showHelp("./path");
-     return 0;
-   }
-
-   unsigned short maxChainLength = 65535; // "unlimited" because search window contains only 2^16 bytes
-
-   // overwrite output ?
-   bool overwrite = false;
-   // preload dictionary from disk
-   const char* dictionary = NULL;
-
-   // default input/output streams
-   UserPtr user;
-   user.in  = stdin;
-   user.out = stdout;
-   user.verbose     = false;
-   user.numBytesIn  = 0;
-   user.numBytesOut = 0;
-   user.totalSize   = 0;
-
    // parse flags
    int nextArgument = 1;
    bool skipArgument = false;
@@ -408,25 +310,6 @@ void command_line_interface(int argc, const char* argv[])
      {
        switch (argv[nextArgument][argPos++])
        {
-         // show help
-       case 'h':
-         showHelp(argv[0]);
-         return 0;
-
-         // force overwrite
-       case 'f':
-         overwrite = true;
-         break;
-
-         // use dictionary
-       case 'D':
-         if (nextArgument + 1 >= argc)
-           error("no dictionary filename found");
-         dictionary = argv[nextArgument + 1]; // TODO: any flag immediately after -D causes an error
-         skipArgument = true;
-         break;
-
-         // display some info on STDERR while compressing
        case 'v':
          user.verbose = true;
          break;
@@ -450,72 +333,7 @@ void command_line_interface(int argc, const char* argv[])
      if (skipArgument)
        nextArgument++;
    }
-
-   // input file is given as first parameter or stdin if no parameter is given (or "-")
-   if (argc > nextArgument && argv[nextArgument][0] != '-')
-   {
-     user.in = fopen(argv[nextArgument], "rb");
-     if (!user.in)
-       error("file not found");
-     nextArgument++;
-   }
-
-   // output file is given as second parameter or stdout if no parameter is given (or "-")
-   if (argc == nextArgument + 1 && argv[nextArgument][0] != '-')
-   {
-     // check if file already exists
-     if (!overwrite && fopen(argv[nextArgument], "rb"))
-       error("output file already exists");
-
-     user.out = fopen(argv[nextArgument], "wb");
-     if (!user.out)
-       error("cannot create file");
-   }
-
-   // load dictionary
-   std::vector<unsigned char> preload;
-   if (dictionary != NULL)
-   {
-     // open dictionary
-     FILE* dict = fopen(dictionary, "rb");
-     if (!dict)
-       error("cannot open dictionary");
-
-     // get dictionary's filesize
-     fseek(dict, 0, SEEK_END);
-     size_t dictSize = ftell(dict);
-     // only the last 64k are relevant
-     const size_t Last64k = 65536;
-     size_t relevant = dictSize < Last64k ? 0 : dictSize - Last64k;
-     fseek(dict, (long)relevant, SEEK_SET);
-     if (dictSize > Last64k)
-       dictSize = Last64k;
-
-     // read those bytes
-     preload.resize(dictSize);
-     fread(&preload[0], 1, dictSize, dict);
-     fclose(dict);
-   }
-
-   if (user.verbose)
-   {
-     if (user.in != stdin)
-     {
-       fseek(user.in, 0, SEEK_END);
-       user.totalSize = ftell(user.in);
-       fseek(user.in, 0, SEEK_SET);
-     }
-
-     user.starttime = time(NULL);
-   }
-
-   // and go !
-   smallz4::lz4(getBytesFromIn, sendBytesToOut, maxChainLength, preload, &user);
-
-   if (user.verbose && user.numBytesIn > 0)
-     fprintf(stderr, "\r%lld bytes => %lld bytes (%d%%) after %d seconds \n", user.numBytesIn, user.numBytesOut, 100 *
-user.numBytesOut / user.numBytesIn, int(time(NULL) - user.starttime));
-}*/
+*/
 
 #include <lz4.h>
 
@@ -623,10 +441,12 @@ int main(int argc, const char* argv[])
    test_lz4(text);
    std::cout << '\n';
 
+   uint16_t maxChainLength = 3;
+
    {
       original_in = text;
       auto t0 = std::chrono::steady_clock::now();
-      smallz4_original::lz4(getBytesOriginal, sendBytesOriginal);
+      smallz4_original::lz4(getBytesOriginal, sendBytesOriginal, maxChainLength);
       auto t1 = std::chrono::steady_clock::now();
 
       std::cout << "original compression time: "
@@ -643,7 +463,7 @@ int main(int argc, const char* argv[])
    const unsigned char* end = it + text.size();
 
    auto t0 = std::chrono::steady_clock::now();
-   smallz4::lz4(it, end, compressed, ix);
+   smallz4::lz4(it, end, compressed, ix, maxChainLength);
    auto t1 = std::chrono::steady_clock::now();
 
    std::cout << "smallz4 compression time: "

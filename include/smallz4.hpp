@@ -9,6 +9,12 @@
 #include <string>
 #include <vector>
 
+// Compression levels:
+// 0: No compression
+// 1 - 3: Greedy search, check 1 to 3 matches
+// 4 - 8: Lazy matching with optimal parsing, check 4 to 8 matches
+// 9: Optimal parsing, check all possible matches (default)
+
 /// LZ4 compression with optimal parsing
 struct smallz4
 {
@@ -20,7 +26,7 @@ struct smallz4
       obj.compress(it, end, b, ix, dictionary);
    }
 
-   // compression level thresholds, made public because I display them in the help screen ...
+   // compression level thresholds
    /// greedy mode for short chains (compression level <= 3) instead of optimal parsing / lazy evaluation
    static constexpr int ShortChainsGreedy = 3;
    /// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
@@ -73,8 +79,8 @@ struct smallz4
    static constexpr int BufferSize = 64 * 1024; // input buffer size, can be any number but zero ;-)
    static constexpr uint32_t MaxDistance = 65535; // maximum match distance, must be power of 2 minus 1
    static constexpr int EndOfChain = 0; // marker for "no match"
-   static constexpr int MaxChainLength =
-      MaxDistance; // stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
+   static constexpr uint16_t MaxChainLength =
+      MaxDistance; // stop match finding after MaxChainLength steps (default is MaxDistance => optimal parsing)
 
    static constexpr int MaxSameLetter =
       19 +
@@ -86,8 +92,8 @@ struct smallz4
    static constexpr int MaxBlockSizeId = 7;
    static constexpr int MaxBlockSize = 4 * 1024 * 1024;
 
-   static constexpr int MaxLengthCode =
-      255; // number of literals and match length is encoded in several bytes, max 255 per byte
+   // number of literals and match length is encoded in several bytes, max 255 per byte
+   static constexpr int MaxLengthCode = 255;
 
    //  ----- one and only variable ... -----
 
@@ -105,9 +111,7 @@ struct smallz4
    };
 
    /// create new compressor (only invoked by lz4)
-   explicit smallz4(uint16_t newMaxChainLength = MaxChainLength)
-      : maxChainLength(newMaxChainLength) // => no limit, but can be changed by setMaxChainLength
-   {}
+   explicit smallz4(uint16_t newMaxChainLength = MaxChainLength) : maxChainLength(newMaxChainLength) {}
 
    /// return true, if the four bytes at *a and *b match
    inline static bool match4(const void* const a, const void* const b)
@@ -329,7 +333,7 @@ struct smallz4
            --i) // ignore the last 5 bytes, they are always literals
       {
          // if encoded as a literal
-         numLiterals++;
+         ++numLiterals;
          Length bestLength = JustLiteral;
          // such a literal "costs" 1 byte
          Cost minCost = cost[i + 1] + JustLiteral;
@@ -360,7 +364,7 @@ struct smallz4
             Length nextCostIncrease = 18; // need one more byte for 19+ long matches (next increase: 19+255*x)
 
             // try all match lengths (start with short ones)
-            for (Length length = MinMatch; length <= match.length; length++) {
+            for (Length length = MinMatch; length <= match.length; ++length) {
                // token (1 byte) + offset (2 bytes) + extra bytes for long matches
                Cost currentCost = cost[i + length] + extraCost;
                // better choice ?
@@ -384,7 +388,7 @@ struct smallz4
 
                // very long matches need extra bytes for encoding match length
                if (length == nextCostIncrease) {
-                  extraCost++;
+                  ++extraCost;
                   nextCostIncrease += MaxLengthCode;
                }
             }
@@ -404,8 +408,6 @@ struct smallz4
       }
    }
 
-   /// compress everything in input stream (accessed via getByte) and write to output stream (via send), improve
-   /// compression with a predefined dictionary
    void compress(const unsigned char*& it, const unsigned char* end, std::string& b, size_t& ix,
                  const std::vector<unsigned char>& dictionary) const
    {
