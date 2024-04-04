@@ -225,8 +225,8 @@ struct smallz4
                                                        const unsigned char* const data, std::vector<unsigned char>& result)
    {
       const auto n_matches = matches.lengths.size();
-      result.clear();
-      result.reserve(n_matches);
+      result.resize(n_matches);
+      size_t ix{}; // write index for result
 
       // indices of current run of literals
       size_t literalsFrom = 0;
@@ -272,26 +272,31 @@ struct smallz4
          if (numLiterals < 15) {
             // add number of literals in higher four bits
             token |= numLiterals << 4;
-            result.emplace_back(token);
+            result[ix] = token;
+            ++ix;
          }
          else {
             // set all higher four bits, the following bytes with determine the exact number of literals
-            result.emplace_back(token | 0xF0);
+            result[ix] = token | 0xF0;
+            ++ix;
 
             // 15 is already encoded in token
             int encodeNumLiterals = int(numLiterals) - 15;
 
             // emit 255 until remainder is below 255
             while (encodeNumLiterals >= MaxLengthCode) {
-               result.emplace_back(MaxLengthCode);
+               result[ix] = MaxLengthCode;
+               ++ix;
                encodeNumLiterals -= MaxLengthCode;
             }
             // and the last byte (can be zero, too)
-            result.emplace_back((unsigned char)encodeNumLiterals);
+            result[ix] = (unsigned char)encodeNumLiterals;
+            ++ix;
          }
          // copy literals
          if (numLiterals > 0) {
-            result.insert(result.end(), data + literalsFrom, data + literalsFrom + numLiterals);
+            std::memcpy(result.data() + ix, data + literalsFrom, numLiterals);
+            ix += numLiterals;
 
             // last token doesn't have a match
             if (lastToken) {
@@ -302,8 +307,10 @@ struct smallz4
          }
 
          // distance stored in 16 bits / little endian
-         result.emplace_back(distance & 0xFF);
-         result.emplace_back(distance >> 8);
+         result[ix] = distance & 0xFF;
+         ++ix;
+         result[ix] = distance >> 8;
+         ++ix;
 
          // >= 15+4 bytes matched
          if (matchLength >= 15) {
@@ -311,13 +318,17 @@ struct smallz4
             matchLength -= 15;
             // emit 255 until remainder is below 255
             while (matchLength >= MaxLengthCode) {
-               result.emplace_back(MaxLengthCode);
+               result[ix] = MaxLengthCode;
+               ++ix;
                matchLength -= MaxLengthCode;
             }
             // and the last byte (can be zero, too)
-            result.emplace_back((unsigned char)matchLength);
+            result[ix] = (unsigned char)matchLength;
+            ++ix;
          }
       }
+      
+      result.resize(ix);
    }
 
    /// walk backwards through all matches and compute number of compressed bytes from current position to the end of the
