@@ -570,9 +570,8 @@ struct smallz4
          for (i = lookback; i + BlockEndNoMatch <= int64_t(blockSize) && !uncompressed; ++i) {
             // detect self-matching
             if (i > 0 && dataBlock[i] == dataBlock[i - 1]) {
-               const auto prev_distance = matches.distances[i - 1];
                // predecessor had the same match ?
-               if (prev_distance == 1) // TODO: handle very long self-referencing matches
+               if (matches.distances[i - 1] == 1) // TODO: handle very long self-referencing matches
                {
                   const auto prev_length = matches.lengths[i - 1];
                   if (prev_length > MaxSameLetter) {
