@@ -476,7 +476,6 @@ struct smallz4
       // - my hashing algorithm reduces the 2^32 combinations to 2^20 hashes (see hashBits), that's about 8 MBytes RAM
       // - thus only 2^20 entry points and at most 2^20 hash chains which is easily manageable
       // ... in the end it's all about conserving memory !
-      // (total memory consumption of smallz4 is about 64 MBytes)
 
       // first and last offset of a block (nextBlock is end-of-block plus 1)
       uint64_t lastBlock = 0;
