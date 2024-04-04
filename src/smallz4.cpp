@@ -530,6 +530,8 @@ void command_line_interface(int argc, const char* argv[])
 }*/
 
 #include <iostream>
+#include <chrono>
+#include <random>
 
 #include <lz4.h>
 
@@ -541,7 +543,7 @@ void decompress_lz4(const std::string& compressedText)
    int decompressedSize = LZ4_decompress_safe(compressedText.c_str(), &decompressedText[0], int(compressedText.size()), int(decompressedText.size()));
 
    if (decompressedSize < 0) {
-       std::cerr << "Decompression failed." << std::endl;
+       std::cerr << "Decompression failed.\n";
    }
    else {
       // Resize the decompressed string to the actual size
@@ -550,21 +552,25 @@ void decompress_lz4(const std::string& compressedText)
 }
 
 void test_lz4(const std::string& originalText) {
-   std::cout << "Original: " << originalText.size() << std::endl;
+   std::cout << "Original: " << originalText.size() << '\n';
     const char* input = originalText.c_str();
     const int inputSize = static_cast<int>(originalText.size());
     int maxCompressedSize = LZ4_compressBound(inputSize); // Calculate maximum compressed size
     std::string compressedText(maxCompressedSize, '\0'); // Allocate space for compressed data
-
+   
+   auto t0 = std::chrono::steady_clock::now();
     int compressedSize = LZ4_compress_default(input, &compressedText[0], inputSize, maxCompressedSize);
+   auto t1 = std::chrono::steady_clock::now();
+   
+   std::cout << "lz4 compression time: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
 
     if (compressedSize <= 0) {
-        std::cerr << "Compression failed." << std::endl;
+        std::cerr << "Compression failed." << '\n';
     }
 
     compressedText.resize(compressedSize);
    
-   std::cout << "Compressed: " << compressedText.size() << std::endl;
+   std::cout << "Compressed: " << compressedText.size() << '\n';
 
    decompress_lz4(compressedText);
 }
@@ -608,17 +614,23 @@ int main(int argc, const char* argv[])
 {
    std::string text = "LZ4 text compression, an efficient algorithm developed by Yann Collet in 2011, stands out for its remarkable speed and compression ratios, making it a preferred choice for numerous applications. By leveraging a combination of fast parsing and a powerful dictionary-based approach, LZ4 excels in compressing text data with minimal computational overhead, achieving impressive compression ratios while maintaining rapid decompression speeds. Its popularity stems from its seamless integration into various systems and its ability to handle real-time data processing requirements with ease. From reducing storage overhead in databases to accelerating data transmission over networks, LZ4's effectiveness in compressing text data has made it a cornerstone technology in the realm of data compression, offering both efficiency and speed without compromising on performance.";
    
+   std::uniform_int_distribution<uint8_t> dist{ 40, 45 };
+   std::mt19937_64 generator{};
+   for (size_t i = 0; i < 1'000'000; ++i)
+   {
+      text.push_back(dist(generator));
+   }
+   
    //std::string text = "Hello World. Hello World!";
    
    test_lz4(text);
-   std::cout << std::endl;
+   std::cout << '\n';
    
    {
       original_in = text;
       smallz4_original::lz4(getBytesOriginal, sendBytesOriginal);
       
-      std::cout << original_out << '\n';
-      std::cout << std::endl;
+      //std::cout << original_out << '\n';
       
       std::cout << "original: " << original_in.size() << ", " << original_out.size() << '\n';
    }
@@ -628,7 +640,12 @@ int main(int argc, const char* argv[])
    
    const unsigned char* it = reinterpret_cast<const unsigned char*>(text.data());
    const unsigned char* end = it + text.size();
+   
+   auto t0 = std::chrono::steady_clock::now();
    smallz4::lz4(it, end, compressed, ix);
+   auto t1 = std::chrono::steady_clock::now();
+   
+   std::cout << "smallz4 compression time: " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6 << '\n';
    compressed.resize(ix);
    
    std::cout << "refactored: " << text.size() << ", " << compressed.size() << '\n';
@@ -638,15 +655,17 @@ int main(int argc, const char* argv[])
       std::cout << "refactored matches original!\n";
    }
    
-   it = reinterpret_cast<const unsigned char*>(original_out.data());
-   end = it + original_out.size();
+   it = reinterpret_cast<const unsigned char*>(compressed.data());
+   end = it + compressed.size();
    ix = 0;
    std::string decompressed{};
    unlz4(it, end, decompressed, ix, nullptr);
    decompressed.resize(ix);
-   std::cout << decompressed << '\n';
+   if (decompressed == text) {
+      std::cout << "decompression succeeded!\n";
+   }
    
-   std::cout << std::endl;
+   std::cout << '\n';
 
   return 0;
 }
