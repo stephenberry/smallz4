@@ -14,11 +14,6 @@
 #include <stdlib.h> // exit()
 #include <string.h> // memcpy
 
-#ifndef FALSE
-#define FALSE 0
-#define TRUE  1
-#endif
-
 /// error handler
 static void unlz4error(const char* msg)
 {
@@ -41,57 +36,48 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
    unsigned char signature2 = *it; ++it;
    unsigned char signature3 = *it; ++it;
    unsigned char signature4 = *it; ++it;
-  unsigned int  signature  = (signature4 << 24) | (signature3 << 16) | (signature2 << 8) | signature1;
+  uint32_t  signature  = (signature4 << 24) | (signature3 << 16) | (signature2 << 8) | signature1;
   unsigned char isModern   = (signature == 0x184D2204);
   unsigned char isLegacy   = (signature == 0x184C2102);
   if (!isModern)
     unlz4error("invalid signature");
 
-  unsigned char hasBlockChecksum   = FALSE;
-  unsigned char hasContentSize     = FALSE;
-  unsigned char hasContentChecksum = FALSE;
-  unsigned char hasDictionaryID    = FALSE;
-  if (isModern)
-  {
-    // flags
-     unsigned char flags = *it; ++it;
-    hasBlockChecksum   = flags & 16;
-    hasContentSize     = flags &  8;
-    hasContentChecksum = flags &  4;
-    hasDictionaryID    = flags &  1;
+  unsigned char hasBlockChecksum   = 0;
+  unsigned char hasContentSize     = 0;
+  unsigned char hasContentChecksum = 0;
+  unsigned char hasDictionaryID    = 0;
+   // flags
+    unsigned char flags = *it; ++it;
+   hasBlockChecksum   = flags & 16;
+   hasContentSize     = flags &  8;
+   hasContentChecksum = flags &  4;
+   hasDictionaryID    = flags &  1;
 
-    // only version 1 file format
-    unsigned char version = flags >> 6;
-    if (version != 1)
+   // only version 1 file format
+   unsigned char version = flags >> 6;
+   if (version != 1) {
       unlz4error("only LZ4 file format version 1 supported");
+   }
 
-    // ignore blocksize
-    char numIgnore = 1;
+   // ignore blocksize
+   char numIgnore = 1;
 
-    // ignore, skip 8 bytes
-    if (hasContentSize)
-      numIgnore += 8;
-    // ignore, skip 4 bytes
-    if (hasDictionaryID)
-      numIgnore += 4;
+   if (hasContentSize)
+     numIgnore += 8; // ignore
+   if (hasDictionaryID)
+     numIgnore += 4; // ignore
 
-    // ignore header checksum (xxhash32 of everything up this point & 0xFF)
-    numIgnore++;
-
-    // skip all those ignored bytes
-    while (numIgnore--)
-       ++it;
-  }
-
-  // don't lower this value, backreferences can be 64kb far away
-   static constexpr size_t HISTORY_SIZE = 64*1024;
-  // contains the latest decoded data
-  unsigned char history[HISTORY_SIZE];
-  // next free position in history[]
-  unsigned int  pos = 0;
+   // ignore header checksum (xxhash32 of everything up this point & 0xFF)
+   ++numIgnore;
+   
+   it += numIgnore; // skip all those ignored bytes
+  
+   static constexpr size_t HISTORY_SIZE = 64*1024; // don't lower this value, backreferences can be 64kb far away
+  unsigned char history[HISTORY_SIZE]; // contains the latest decoded data
+  uint32_t  pos = 0; // next free position in history[]
 
   // dictionary compression is a recently introduced feature, just move its contents to the buffer
-  if (dictionary != NULL)
+  if (dictionary)
   {
     // open dictionary
     FILE* dict = fopen(dictionary, "rb");
@@ -114,16 +100,14 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
   // parse all blocks until blockSize == 0
   while (true)
   {
-    // block size
-     unsigned int blockSize = *it; ++it;
-     blockSize |= (unsigned int)(*it) <<  8; ++it;
-     blockSize |= (unsigned int)(*it) << 16; ++it;
-     blockSize |= (unsigned int)(*it) << 24; ++it;
+     uint32_t blockSize = *it; ++it;
+     blockSize |= uint32_t(*it) <<  8; ++it;
+     blockSize |= uint32_t(*it) << 16; ++it;
+     blockSize |= uint32_t(*it) << 24; ++it;
 
     // highest bit set ?
-    unsigned char isCompressed = isLegacy || (blockSize & 0x80000000) == 0;
-    if (isModern)
-      blockSize &= 0x7FFFFFFF;
+    unsigned char isCompressed = (blockSize & 0x80000000) == 0;
+     blockSize &= 0x7FFFFFFF;
 
     // stop after last block
     if (blockSize == 0)
@@ -132,8 +116,8 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
     if (isCompressed)
     {
       // decompress block
-      unsigned int blockOffset = 0;
-      unsigned int numWritten  = 0;
+       uint32_t blockOffset = 0;
+       uint32_t numWritten  = 0;
       while (blockOffset < blockSize)
       {
         // get a token
@@ -141,7 +125,7 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
         blockOffset++;
 
         // determine number of literals
-        unsigned int numLiterals = token >> 4;
+         uint32_t numLiterals = token >> 4;
         if (numLiterals == 15)
         {
           // number of literals length encoded in more than 1 byte
@@ -187,15 +171,15 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
           break;
 
         // match distance is encoded in two bytes (little endian)
-         unsigned int delta = *it; ++it;
-         delta |= (unsigned int)(*it) << 8; ++it;
+         uint32_t delta = *it; ++it;
+         delta |= (uint32_t)(*it) << 8; ++it;
         // zero isn't allowed
         if (delta == 0)
           unlz4error("invalid offset");
         blockOffset += 2;
 
         // match length (always >= 4, therefore length is stored minus 4)
-        unsigned int matchLength = 4 + (token & 0x0F);
+        uint32_t matchLength = 4 + (token & 0x0F);
         if (matchLength == 4 + 0x0F)
         {
           unsigned char current;
@@ -208,7 +192,7 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
         }
 
         // copy match
-        unsigned int referencePos = (pos >= delta) ? (pos - delta) : (HISTORY_SIZE + pos - delta);
+        uint32_t referencePos = (pos >= delta) ? (pos - delta) : (HISTORY_SIZE + pos - delta);
         // start and end within the current 64k block ?
         if (pos + matchLength < HISTORY_SIZE && referencePos + matchLength < HISTORY_SIZE)
         {
@@ -248,10 +232,6 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
           }
         }
       }
-
-      // all legacy blocks must be completely filled - except for the last one
-      if (isLegacy && numWritten + pos < 8*1024*1024)
-        break;
     }
     else
     {
@@ -269,20 +249,15 @@ void unlz4(const char*& it, const char* end, std::string& b, size_t& ix, const c
       }
     }
 
-    if (hasBlockChecksum)
-    {
-      // ignore checksum, skip 4 bytes
-       it += 4;
+    if (hasBlockChecksum) {
+       it += 4; // ignore checksum, skip 4 bytes
     }
   }
 
-  if (hasContentChecksum)
-  {
-    // ignore checksum, skip 4 bytes
-     it += 4;
+  if (hasContentChecksum) {
+     it += 4; // ignore checksum, skip 4 bytes
   }
-
-  // flush output buffer
+   
    smallz4::dump({history, pos}, b, ix);
 }
 
@@ -574,7 +549,6 @@ void decompress_lz4(const std::string& compressedText)
 
 void test_lz4(const std::string& originalText) {
    std::cout << "Original: " << originalText.size() << std::endl;
-    // Compress the string
     const char* input = originalText.c_str();
     const int inputSize = static_cast<int>(originalText.size());
     int maxCompressedSize = LZ4_compressBound(inputSize); // Calculate maximum compressed size
@@ -586,7 +560,6 @@ void test_lz4(const std::string& originalText) {
         std::cerr << "Compression failed." << std::endl;
     }
 
-    // Resize the compressed string to the actual size
     compressedText.resize(compressedSize);
    
    std::cout << "Compressed: " << compressedText.size() << std::endl;
@@ -594,11 +567,59 @@ void test_lz4(const std::string& originalText) {
    decompress_lz4(compressedText);
 }
 
+std::string original_in{};
+std::string original_out{};
+size_t original_ix{};
+
+/// read several bytes and store at "data", return number of actually read bytes (return only zero if end of data reached)
+size_t getBytesOriginal(void* data, size_t numBytes, void*)
+{
+  if (data && numBytes > 0)
+  {
+     const auto n = original_in.size();
+     
+     if ((numBytes + original_ix) > n) {
+        numBytes = n - original_ix;
+     }
+     
+     std::memcpy(data, original_in.data() + original_ix, numBytes);
+     original_ix += numBytes;
+
+    return numBytes;
+  }
+  return 0;
+}
+
+/// write a block of bytes
+void sendBytesOriginal(const void* data, size_t numBytes, void*)
+{
+  if (data && numBytes > 0)
+  {
+     const auto n = original_out.size();
+     original_out.resize(n + numBytes);
+     
+     std::memcpy(original_out.data() + n, data, numBytes);
+  }
+}
+
 int main(int argc, const char* argv[])
 {
    std::string text = "LZ4 text compression, an efficient algorithm developed by Yann Collet in 2011, stands out for its remarkable speed and compression ratios, making it a preferred choice for numerous applications. By leveraging a combination of fast parsing and a powerful dictionary-based approach, LZ4 excels in compressing text data with minimal computational overhead, achieving impressive compression ratios while maintaining rapid decompression speeds. Its popularity stems from its seamless integration into various systems and its ability to handle real-time data processing requirements with ease. From reducing storage overhead in databases to accelerating data transmission over networks, LZ4's effectiveness in compressing text data has made it a cornerstone technology in the realm of data compression, offering both efficiency and speed without compromising on performance.";
    
+   //std::string text = "Hello World. Hello World!";
+   
    test_lz4(text);
+   std::cout << std::endl;
+   
+   {
+      original_in = text;
+      smallz4_original::lz4(getBytesOriginal, sendBytesOriginal);
+      
+      std::cout << original_out << '\n';
+      std::cout << std::endl;
+      
+      std::cout << "original: " << original_in.size() << ", " << original_out.size() << '\n';
+   }
    
    std::string compressed{};
    size_t ix{};
@@ -608,16 +629,22 @@ int main(int argc, const char* argv[])
    smallz4::lz4(it, end, compressed, ix);
    compressed.resize(ix);
    
-   std::cout << text.size() << ", " << compressed.size() << '\n';
-   //std::cout << out << '\n';
+   std::cout << "refactored: " << text.size() << ", " << compressed.size() << '\n';
+   std::cout << compressed << '\n';
    
-   it = compressed.data();
-   end = it + compressed.size();
+   if (original_out == compressed) {
+      std::cout << "refactored matches original!\n";
+   }
+   
+   it = original_out.data();
+   end = it + original_out.size();
    ix = 0;
    std::string decompressed{};
    unlz4(it, end, decompressed, ix, nullptr);
    decompressed.resize(ix);
    std::cout << decompressed << '\n';
+   
+   std::cout << std::endl;
 
   return 0;
 }
