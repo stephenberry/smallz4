@@ -504,7 +504,7 @@ private:
     while (true)
     {
       // ==================== start new block ====================
-      // first byte of the currently processed block (std::vector data may contain the last 64k of the previous block, too)
+      // first byte of the currently processed block (data may contain the last 64k of the previous block, too)
       const unsigned char* dataBlock = nullptr;
 
       // prepend dictionary
@@ -544,12 +544,12 @@ private:
          it += incoming;
       }
 
-      // no more data ? => WE'RE DONE !
-      if (nextBlock == numRead)
-        break;
+       if (nextBlock == numRead) {
+          break; // finished reading
+       }
 
       // determine block borders
-      lastBlock  = nextBlock;
+      lastBlock = nextBlock;
       nextBlock += maxBlockSize;
       // not beyond end-of-file
       if (nextBlock > numRead)
