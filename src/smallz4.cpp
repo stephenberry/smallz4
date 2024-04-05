@@ -351,7 +351,7 @@ int main(int argc, const char* argv[])
       "technology in the realm of data compression, offering both efficiency and speed without compromising on "
       "performance.";
 
-   std::uniform_int_distribution<uint8_t> dist{40, 50};
+   std::uniform_int_distribution<unsigned char> dist{40, 50};
    std::mt19937_64 generator{};
    for (size_t i = 0; i < 5'000'000; ++i) {
       text.push_back(dist(generator));
@@ -403,7 +403,7 @@ int main(int argc, const char* argv[])
 
    std::cout << '\n';
    if (original_out == compressed) {
-      std::cout << "refactored matches original!\n";
+      std::cout << "refactored matches original\n";
    }
    else {
       std::cout << "REFACTORING DOESN'T MATCH!\n";
@@ -416,7 +416,7 @@ int main(int argc, const char* argv[])
    unlz4(it, end, decompressed, ix, nullptr);
    decompressed.resize(ix);
    if (decompressed == text) {
-      std::cout << "decompression succeeded!\n";
+      std::cout << "decompression succeeded\n";
    }
    
    //decompress_lz4(compressed);
