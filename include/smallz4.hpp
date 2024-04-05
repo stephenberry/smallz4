@@ -42,8 +42,29 @@ struct smallz4
       std::memcpy(b.data() + ix, str.data(), n);
       ix += n;
    }
+   
+   static inline void dump(const std::span<const unsigned char> str, std::vector<unsigned char>& b, size_t& ix) noexcept
+   {
+      const auto n = str.size();
+      if (ix + n > b.size()) [[unlikely]] {
+         b.resize((std::max)(b.size() * 2, ix + n));
+      }
+
+      std::memcpy(b.data() + ix, str.data(), n);
+      ix += n;
+   }
 
    static inline void dump(const unsigned char c, std::string& b, size_t& ix) noexcept
+   {
+      if (ix == b.size()) [[unlikely]] {
+         b.resize(b.size() == 0 ? 128 : b.size() * 2);
+      }
+
+      b[ix] = c;
+      ++ix;
+   }
+   
+   static inline void dump(const unsigned char c, std::vector<unsigned char>& b, size_t& ix) noexcept
    {
       if (ix == b.size()) [[unlikely]] {
          b.resize(b.size() == 0 ? 128 : b.size() * 2);
@@ -262,31 +283,26 @@ struct smallz4
          if (numLiterals < 15) {
             // add number of literals in higher four bits
             token |= numLiterals << 4;
-            result[ix] = token;
-            ++ix;
+            dump(token, result, ix);
          }
          else {
             // set all higher four bits, the following bytes with determine the exact number of literals
-            result[ix] = token | 0xF0;
-            ++ix;
+            dump(token | 0xF0, result, ix);
 
             // 15 is already encoded in token
             int encodeNumLiterals = int(numLiterals) - 15;
 
             // emit 255 until remainder is below 255
             while (encodeNumLiterals >= MaxLengthCode) {
-               result[ix] = MaxLengthCode;
-               ++ix;
+               dump(MaxLengthCode, result, ix);
                encodeNumLiterals -= MaxLengthCode;
             }
             // and the last byte (can be zero, too)
-            result[ix] = (unsigned char)encodeNumLiterals;
-            ++ix;
+            dump((unsigned char)encodeNumLiterals, result, ix);
          }
          // copy literals
          if (numLiterals > 0) {
-            std::memcpy(result.data() + ix, data + literalsFrom, numLiterals);
-            ix += numLiterals;
+            dump({ data + literalsFrom, numLiterals }, result, ix);
 
             // last token doesn't have a match
             if (lastToken) {
@@ -297,10 +313,8 @@ struct smallz4
          }
 
          // distance stored in 16 bits / little endian
-         result[ix] = distance & 0xFF;
-         ++ix;
-         result[ix] = distance >> 8;
-         ++ix;
+         dump(distance & 0xFF, result, ix);
+         dump(distance >> 8, result, ix);
 
          // >= 15+4 bytes matched
          if (matchLength >= 15) {
@@ -308,13 +322,11 @@ struct smallz4
             matchLength -= 15;
             // emit 255 until remainder is below 255
             while (matchLength >= MaxLengthCode) {
-               result[ix] = MaxLengthCode;
-               ++ix;
+               dump(MaxLengthCode, result, ix);
                matchLength -= MaxLengthCode;
             }
             // and the last byte (can be zero, too)
-            result[ix] = (unsigned char)matchLength;
-            ++ix;
+            dump((unsigned char)matchLength, result, ix);
          }
       }
       
@@ -435,13 +447,11 @@ struct smallz4
       dump({header, sizeof(header)}, b, ix);
 
       // ==================== declarations ====================
-      // read the file in chunks/blocks, data will contain only bytes which are relevant for the current block
+      // data will contain only bytes which are relevant for the current block
       std::span<const unsigned char> data;
-
-      // file position corresponding to data[0]
-      size_t dataZero = 0;
-      // last already read position
-      size_t numRead = 0;
+      
+      size_t dataZero = 0; // file position corresponding to data[0]
+      size_t numRead = 0; // last already read position
 
       // passthru data ? (but still wrap it in LZ4 format)
       const bool uncompressed = (maxChainLength == 0);
